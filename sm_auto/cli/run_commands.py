@@ -173,7 +173,8 @@ def facebook_marketplace(query, profile, user_data_dir, output, scrolls, headles
 
                 with open(output_path, "w") as f:
                     for listing in listings:
-                        f.write(json.dumps(listing.model_dump()) + "\n")
+                        # Use mode='json' to serialize datetime to ISO format
+                        f.write(json.dumps(listing.model_dump(mode='json')) + "\n")
 
                 click.echo(f"Results saved to: {output_path}")
             else:
