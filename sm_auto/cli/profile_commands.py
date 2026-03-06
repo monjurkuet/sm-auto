@@ -7,10 +7,12 @@ Commands for discovering, verifying, and managing Chrome profiles.
 import asyncio
 import json
 from pathlib import Path
+from typing import Optional
 
 import click
 
 from sm_auto.utils.logger import get_logger
+from sm_auto.utils.security import validate_profile_path
 from sm_auto.core.browser.profile_manager import ProfileManager, ChromeUserDataDir
 from sm_auto.core.browser.driver_factory import DriverFactory
 from sm_auto.core.exceptions import ProfileNotFoundError, ProfileLockedError
@@ -19,12 +21,12 @@ logger = get_logger(__name__)
 
 
 @click.group()
-def profile():
+def profile() -> None:
     """Manage Chrome profiles for automation."""
     pass
 
 
-def get_profile_manager_with_config(user_data_dir: str = None) -> ProfileManager:
+def get_profile_manager_with_config(user_data_dir: Optional[str] = None) -> ProfileManager:
     """
     Get a ProfileManager instance, using config value as default for user_data_dir.
     
@@ -50,13 +52,13 @@ def get_profile_manager_with_config(user_data_dir: str = None) -> ProfileManager
 @profile.command("list")
 @click.option("--verbose", "-v", is_flag=True, help="Show detailed profile information")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory (overrides config)")
-def list_profiles(verbose, user_data_dir):
+def list_profiles(verbose: bool, user_data_dir: Optional[str]) -> None:
     """List all available Chrome profiles."""
 
     manager = get_profile_manager_with_config(user_data_dir)
 
     try:
-        profiles = manager.discover_profiles()
+        profiles = manager.discover_profiles_sync()
     except ProfileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         return
@@ -86,22 +88,23 @@ def list_profiles(verbose, user_data_dir):
 @click.option("--path", type=click.Path(), help="Scan specific Chrome user data directory")
 @click.option("--config", "use_config", is_flag=True, help="Scan the directory from config.yaml")
 @click.option("--json", "output_json", is_flag=True, help="Output as JSON for config")
-def detect_profiles(verbose, path, use_config, output_json):
+def detect_profiles(verbose: bool, path: Optional[str], use_config: bool, output_json: bool) -> None:
     """
     Auto-detect and list all Chrome user data directories with their profiles.
 
     This helps identify available Chrome profiles for configuration.
     """
     if path:
-        # Scan specific directory
-        user_data_path = Path(path)
-        if not user_data_path.exists():
-            click.echo(f"Error: Directory not found: {path}", err=True)
+        # Scan specific directory - validate for security
+        try:
+            user_data_path = validate_profile_path(path)
+        except (ValueError, TypeError, ProfileNotFoundError) as e:
+            click.echo(f"Error: {e}", err=True)
             return
 
         manager = ProfileManager(user_data_dir=user_data_path)
         try:
-            profiles = manager.discover_profiles()
+            profiles = manager.discover_profiles_sync()
         except ProfileNotFoundError as e:
             click.echo(f"Error: {e}", err=True)
             return
@@ -128,7 +131,7 @@ def detect_profiles(verbose, path, use_config, output_json):
             
         manager = ProfileManager(user_data_dir=user_data_path)
         try:
-            profiles = manager.discover_profiles()
+            profiles = manager.discover_profiles_sync()
         except ProfileNotFoundError as e:
             click.echo(f"Error: {e}", err=True)
             return
@@ -203,13 +206,13 @@ def detect_profiles(verbose, path, use_config, output_json):
 @profile.command("verify")
 @click.argument("profile_name")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory (overrides config)")
-def verify_profile(profile_name, user_data_dir):
+def verify_profile(profile_name: str, user_data_dir: Optional[str]) -> None:
     """Verify a profile is valid and available."""
 
     manager = get_profile_manager_with_config(user_data_dir)
 
     try:
-        profiles = manager.discover_profiles()
+        profiles = manager.discover_profiles_sync()
     except ProfileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         return
@@ -245,7 +248,7 @@ def verify_profile(profile_name, user_data_dir):
 @click.option("--path", type=click.Path(), help="Direct path to profile directory")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory (overrides config)")
 @click.option("--headless/--no-headless", default=False, help="Run in headless mode")
-def launch_profile(profile, path, user_data_dir, headless):
+def launch_profile(profile: Optional[str], path: Optional[str], user_data_dir: Optional[str], headless: bool) -> None:
     """
     Launch browser with a profile for testing/verification.
 
@@ -258,13 +261,17 @@ def launch_profile(profile, path, user_data_dir, headless):
     profile_path = None
 
     if path:
-        # Direct profile path provided
-        profile_path = Path(path)
+        # Direct profile path provided - validate for security
+        try:
+            profile_path = validate_profile_path(path)
+        except (ValueError, TypeError) as e:
+            click.echo(f"Error: {e}", err=True)
+            return
     elif profile:
         # Look up profile by name
         manager = get_profile_manager_with_config(user_data_dir)
         try:
-            profiles = manager.discover_profiles()
+            profiles = manager.discover_profiles_sync()
         except ProfileNotFoundError as e:
             click.echo(f"Error: {e}", err=True)
             return
@@ -323,13 +330,13 @@ def launch_profile(profile, path, user_data_dir, headless):
 @profile.command("info")
 @click.argument("profile_name")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory (overrides config)")
-def profile_info(profile_name, user_data_dir):
+def profile_info(profile_name: str, user_data_dir: Optional[str]) -> None:
     """Show detailed information about a profile."""
 
     manager = get_profile_manager_with_config(user_data_dir)
 
     try:
-        profiles = manager.discover_profiles()
+        profiles = manager.discover_profiles_sync()
     except ProfileNotFoundError as e:
         click.echo(f"Error: {e}", err=True)
         return

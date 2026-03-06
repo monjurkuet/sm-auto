@@ -42,3 +42,8 @@ Thumbs.db
 
 # Local config
 *.local.yaml
+listings.json
+
+# Environment variables
+.env
+.env.local

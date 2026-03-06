@@ -153,7 +153,7 @@ class CaptureService:
 
         Routes events to registered parsers based on URL patterns.
         """
-        print("[CaptureService] Starting queue processor")  # Debug
+        logger.debug("[CaptureService] Starting queue processor")
         while self._running:
             try:
                 # Get event from queue with timeout
@@ -161,7 +161,7 @@ class CaptureService:
                     event = await asyncio.wait_for(
                         self._queue.get(), timeout=1.0
                     )
-                    print(f"[CaptureService] Got event from queue: {event.url}, body: {len(event.body) if event.body else 0}")  # Debug
+                    logger.debug(f"[CaptureService] Got event from queue: {event.url}, body: {len(event.body) if event.body else 0}")
                 except asyncio.TimeoutError:
                     continue
 
@@ -184,14 +184,14 @@ class CaptureService:
         if event.event_type != "response" or not event.body:
             return
 
-        print(f"[CaptureService] Routing event: {event.event_type}, URL: {event.url}, body length: {len(event.body) if event.body else 0}")  # Debug
+        logger.debug(f"[CaptureService] Routing event: {event.event_type}, URL: {event.url}, body length: {len(event.body) if event.body else 0}")
 
         url_lower = event.url.lower()
 
         # Find matching parsers
         for pattern, callbacks in self._parsers.items():
             if pattern.lower() in url_lower:
-                print(f"[CaptureService] Matching pattern: {pattern}, callbacks: {len(callbacks)}")  # Debug
+                logger.debug(f"[CaptureService] Matching pattern: {pattern}, callbacks: {len(callbacks)}")
                 for callback in callbacks:
                     try:
                         await callback(event)

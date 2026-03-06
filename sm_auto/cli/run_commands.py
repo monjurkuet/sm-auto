@@ -6,9 +6,13 @@ Commands for executing automation tasks on various platforms.
 
 import asyncio
 import json
+import os
+import re
 import sys
+import tempfile
 from pathlib import Path
 from datetime import datetime
+from typing import Optional
 
 import click
 
@@ -27,7 +31,7 @@ from sm_auto.platforms.facebook.marketplace.automation import (
 logger = get_logger(__name__)
 
 
-def get_profile_manager_with_config(user_data_dir: str = None) -> ProfileManager:
+def get_profile_manager_with_config(user_data_dir: Optional[str] = None) -> ProfileManager:
     """
     Get a ProfileManager instance, using config value as default for user_data_dir.
     """
@@ -42,40 +46,115 @@ def get_profile_manager_with_config(user_data_dir: str = None) -> ProfileManager
 
 
 @click.group()
-def run():
+def run() -> None:
     """Run automation tasks."""
     pass
+
+
+def _sanitize_filename(text: str) -> str:
+    """
+    Sanitize a string for use in a filename.
+    
+    Removes or replaces special characters that are not safe for filenames.
+    
+    Args:
+        text: The input string to sanitize.
+        
+    Returns:
+        A sanitized string safe for use in filenames.
+    """
+    # Replace spaces with underscores
+    sanitized = text.replace(" ", "_")
+    # Remove any character that is not alphanumeric, underscore, or hyphen
+    sanitized = re.sub(r'[^\w\-]', '', sanitized)
+    # Limit length to avoid overly long filenames
+    return sanitized[:50]
 
 
 @run.command("facebook-marketplace")
 @click.option("--query", "-q", required=True, help="Search query")
 @click.option("--profile", "-p", help="Profile name to use")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory")
-@click.option("--output", "-o", type=click.Path(), help="Output file path")
+@click.option("--output", "-o", type=click.Path(), help="Output file path (overrides storage config)")
 @click.option("--scrolls", "-s", default=10, help="Maximum scroll iterations")
 @click.option("--headless", is_flag=True, help="Run in headless mode")
-def facebook_marketplace(query, profile, user_data_dir, output, scrolls, headless):
+@click.option(
+    "--storage",
+    type=click.Choice(["json", "mongodb", "both"], case_sensitive=False),
+    help="Storage backend: json, mongodb, or both (overrides config)"
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False),
+    help="Override logging level for this command"
+)
+@click.option(
+    "--save-raw",
+    is_flag=True,
+    help="Enable saving raw GraphQL responses to JSONL"
+)
+@click.option(
+    "--raw-output",
+    type=click.Path(),
+    help="Custom path for JSONL file (default: ./output/facebook_marketplace_raw_{query}_{timestamp}.jsonl)"
+)
+def facebook_marketplace(
+    query: str,
+    profile: Optional[str],
+    user_data_dir: Optional[str],
+    output: Optional[str],
+    scrolls: int,
+    headless: bool,
+    storage: Optional[str],
+    log_level: Optional[str],
+    save_raw: bool = False,
+    raw_output: Optional[str] = None,
+) -> None:
     """
     Search Facebook Marketplace and extract listings.
 
-    Example:
+    Examples:
         sm-auto run facebook-marketplace -q "iphone" -p "Personal" -o listings.json
+        sm-auto run facebook-marketplace -q "laptop" --storage mongodb
+        sm-auto run facebook-marketplace -q "car" --storage both --log-level INFO
     """
 
     async def run_automation():
+        # Override log level if specified
+        if log_level:
+            import logging
+            logging.getLogger("sm_auto").setLevel(getattr(logging, log_level))
+        
+        # Get settings
+        settings = get_settings()
+        
         click.echo(f"\n=== Facebook Marketplace Search ===")
         click.echo(f"Query: {query}")
         click.echo(f"Profile: {profile or 'default'}")
-        click.echo(f"Output: {output or 'console'}")
         click.echo()
+
+        # Initialize storage backends
+        from sm_auto.utils.storage import create_storage_backends
+        storage_format = storage or settings.storage.default_format
+        logger.info(f"Storage format: {storage_format}")
+        logger.info(f"MongoDB enabled in config: {settings.storage.mongodb.enabled}")
+        storage_manager = create_storage_backends(
+            format_type=storage_format,
+            json_enabled=settings.storage.json_config.enabled,
+            json_output_dir=settings.storage.json_config.output_dir,
+            json_filename_template=settings.storage.json_config.filename_template,
+            mongodb_enabled=settings.storage.mongodb.enabled,
+            mongodb_database=settings.storage.mongodb.database,
+            mongodb_collection=settings.storage.mongodb.collection,
+        )
+        logger.info(f"Storage backends initialized: {storage_manager.has_backends}")
 
         # Get profile
         profile_mgr = get_profile_manager_with_config(user_data_dir)
-        profiles = profile_mgr.discover_profiles()
+        profiles = await profile_mgr.discover_profiles()
 
         if not profiles:
             click.echo("Error: No Chrome profiles found.", err=True)
-            click.echo("Run 'sm-auto profile list' to see available profiles.", err=True)
             return
 
         # Select profile
@@ -87,108 +166,111 @@ def facebook_marketplace(query, profile, user_data_dir, output, scrolls, headles
             )
             if not selected:
                 click.echo(f"Error: Profile not found: {profile}", err=True)
-                click.echo("Available profiles:", err=True)
-                for p in profiles:
-                    click.echo(f"  - {p.display_name or p.name} (internal name: {p.name})", err=True)
                 return
         else:
             selected = next((p for p in profiles if p.is_default), profiles[0])
 
         click.echo(f"Using profile: {selected.name}")
-
-        # Verify profile
         await profile_mgr.verify_profile(selected)
-        click.echo(f"Using profile path: {selected.path}")
-        click.echo()
 
         # Initialize session manager
         session_mgr = SessionManager()
 
         try:
-            # Start browser
             click.echo("Launching browser...")
-            await session_mgr.start(
-                profile_path=selected.path,
-                headless=headless,
-            )
+            await session_mgr.start(profile_path=selected.path, headless=headless)
 
-            # Initialize platform
             click.echo("Initializing Facebook Marketplace...")
             platform = FacebookMarketplacePlatform(session_mgr)
             await platform.initialize()
 
-            # Check if logged in
             if not await platform.is_logged_in():
-                click.echo(
-                    "\nWarning: Not logged in to Facebook.",
-                    err=True,
-                )
-                click.echo(
-                    "Please run 'sm-auto auth' first or use a logged-in profile.",
-                    err=True,
-                )
+                click.echo("\nWarning: Not logged in to Facebook.", err=True)
                 return
 
             click.echo("Logged in successfully!")
-            click.echo()
 
             # Set up network capture
             capture_queue = asyncio.Queue()
-            interceptor = CDPInterceptor(
-                session_mgr.tab,
-                capture_queue,
-                url_filters=["graphql", "api"],
-            )
+            interceptor = CDPInterceptor(session_mgr.tab, capture_queue, url_filters=["graphql", "api"])
             capture_service = CaptureService()
 
             await interceptor.start()
             await capture_service.start(interceptor)
 
-            # Create automation and attach capture service
             automation = platform.get_automation()
             automation.capture_service = capture_service
             await automation.start_capture()
 
-            # Run search
             click.echo(f"Searching for '{query}'...")
-            result = await automation.search(
-                query=query,
-                max_scroll_count=scrolls,
-            )
+            result = await automation.search(query=query, max_scroll_count=scrolls)
 
-            # Stop capture
             await automation.stop_capture()
             await capture_service.stop()
             await interceptor.stop()
 
-            # Output results
+            # Save results
             listings = result.listings
             click.echo(f"\n=== Results ===")
             click.echo(f"Found {len(listings)} listings")
 
+            # Save raw responses if requested
+            if save_raw:
+                try:
+                    if raw_output:
+                        raw_filepath = raw_output
+                    else:
+                        # Generate default output path
+                        timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                        sanitized_query = _sanitize_filename(query)
+                        raw_filepath = f"./output/facebook_marketplace_raw_{sanitized_query}_{timestamp}.jsonl"
+                    
+                    # Create output directory if it doesn't exist
+                    output_dir = os.path.dirname(raw_filepath)
+                    if output_dir and not os.path.exists(output_dir):
+                        os.makedirs(output_dir, exist_ok=True)
+                        logger.info(f"Created output directory: {output_dir}")
+                    
+                    # Save raw responses
+                    success = automation.save_raw_responses(raw_filepath)
+                    if success:
+                        click.echo(f"Raw responses saved to: {raw_filepath}")
+                    else:
+                        click.echo("Warning: No raw responses were captured", err=True)
+                except Exception as e:
+                    logger.error(f"Failed to save raw responses: {e}")
+                    click.echo(f"Error saving raw responses: {e}", err=True)
+
             if output:
-                # Write to file (NDJSON format)
-                output_path = Path(output)
-                output_path.parent.mkdir(parents=True, exist_ok=True)
-
-                with open(output_path, "w") as f:
-                    for listing in listings:
-                        # Use mode='json' to serialize datetime to ISO format
-                        f.write(json.dumps(listing.model_dump(mode='json')) + "\n")
-
-                click.echo(f"Results saved to: {output_path}")
+                # CLI output path overrides config
+                from sm_auto.utils.storage.json_storage import JSONFileStorage
+                json_storage = JSONFileStorage(
+                    output_dir=Path(output).parent,
+                    filename_template=Path(output).name,
+                )
+                await json_storage.save(listings, metadata={
+                    "platform": "facebook_marketplace",
+                    "query": query,
+                })
+                click.echo(f"Results saved to: {output}")
+            elif storage_manager.has_backends:
+                logger.info(f"Saving {len(listings)} listings via storage manager...")
+                try:
+                    results = await storage_manager.save(listings, metadata={
+                        "platform": "facebook_marketplace",
+                        "query": query,
+                        "session_id": str(datetime.now().timestamp()),
+                    })
+                    logger.info(f"Save completed. Results: {results}")
+                    for result_path in results:
+                        click.echo(f"Results saved to: {result_path}")
+                except Exception as e:
+                    logger.error(f"Failed to save to storage: {e}")
+                    click.echo(f"Error saving data: {e}", err=True)
             else:
-                # Print to console
-                click.echo()
+                # Console output only
                 for i, listing in enumerate(listings[:10], 1):
-                    click.echo(f"{i}. {listing.title}")
-                    click.echo(f"   Price: {listing.price or 'N/A'}")
-                    click.echo(f"   Location: {listing.location or 'N/A'}")
-                    click.echo(f"   URL: {listing.url}")
-                    click.echo()
-
-                if len(listings) > 10:
-                    click.echo(f"... and {len(listings) - 10} more listings")
+                    click.echo(f"{i}. {listing.title} - {listing.price or 'N/A'}")
 
             click.echo()
 
@@ -198,7 +280,7 @@ def facebook_marketplace(query, profile, user_data_dir, output, scrolls, headles
             click.echo(f"Error: {e}", err=True)
             logger.exception("Automation failed")
         finally:
-            click.echo("Closing browser...")
+            await storage_manager.close()
             await session_mgr.stop()
             click.echo("Done.")
 
@@ -208,7 +290,7 @@ def facebook_marketplace(query, profile, user_data_dir, output, scrolls, headles
 @run.command("test")
 @click.option("--profile", "-p", help="Profile name to use")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory")
-def test_automation(profile, user_data_dir):
+def test_automation(profile: Optional[str], user_data_dir: Optional[str]) -> None:
     """
     Test automation with a simple page load.
 
@@ -220,7 +302,7 @@ def test_automation(profile, user_data_dir):
 
         # Get profile
         profile_mgr = get_profile_manager_with_config(user_data_dir)
-        profiles = profile_mgr.discover_profiles()
+        profiles = profile_mgr.discover_profiles_sync()
 
         if not profiles:
             click.echo("Error: No Chrome profiles found.", err=True)

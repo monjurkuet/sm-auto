@@ -31,7 +31,7 @@ class ProfileError(SMAutoError):
 
 
 class ProfileNotFoundError(ProfileError):
-    """Raised when a requested Chrome profile is not found."""
+    """Raised when a requested Chrome profile is not found within a Chrome installation."""
 
     pass
 
@@ -48,8 +48,13 @@ class ProfileCopyError(ProfileError):
     pass
 
 
-class ProfileNotFoundError(ProfileError):
-    """Raised when Chrome installation is not found."""
+class ChromeInstallationNotFoundError(ProfileError):
+    """
+    Raised when Chrome browser installation cannot be found on the system.
+
+    This is distinct from ProfileNotFoundError which is raised when a specific
+    profile cannot be found within an existing Chrome installation.
+    """
 
     pass
 

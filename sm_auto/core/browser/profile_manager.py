@@ -5,16 +5,20 @@ Discovers existing Chrome profiles, allows selection, verifies integrity,
 and supports using profiles directly without copying.
 """
 
+import asyncio
 import json
 import platform
 from pathlib import Path
 from typing import List, Optional, Dict, Any
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+
+import aiofiles
 
 from sm_auto.utils.logger import get_logger
 from sm_auto.core.exceptions import (
     ProfileNotFoundError,
     ProfileLockedError,
+    ChromeInstallationNotFoundError,
 )
 
 logger = get_logger(__name__)
@@ -46,11 +50,7 @@ class ChromeUserDataDir:
     path: Path
     is_default: bool = False
     browser_name: str = "Chrome"  # Chrome, Chromium, Chrome Beta, etc.
-    profiles: List[ChromeProfile] = None
-
-    def __post_init__(self):
-        if self.profiles is None:
-            self.profiles = []
+    profiles: List[ChromeProfile] = field(default_factory=list)
 
 
 class ProfileManager:
@@ -134,15 +134,15 @@ class ProfileManager:
             for path in linux_paths:
                 if path.exists():
                     return path
-            raise ProfileNotFoundError(
+            raise ChromeInstallationNotFoundError(
                 "Chrome installation not found. Tried: "
                 + ", ".join(str(p) for p in linux_paths)
             )
         else:
-            raise ProfileNotFoundError(f"Unsupported operating system: {system}")
+            raise ChromeInstallationNotFoundError(f"Unsupported operating system: {system}")
 
         if not base.exists():
-            raise ProfileNotFoundError(
+            raise ChromeInstallationNotFoundError(
                 f"Chrome User Data directory not found at: {base}"
             )
 
@@ -201,21 +201,58 @@ class ProfileManager:
 
         return results
 
-    def discover_profiles(self) -> List[ChromeProfile]:
+    async def discover_profiles(self) -> List[ChromeProfile]:
         """
         Discover all Chrome profiles on the system.
 
         Scans the Chrome User Data directory and reads profile metadata
         from Preferences files to build a list of available profiles.
+        Uses async file I/O for better performance.
 
         Returns:
             List of discovered ChromeProfile objects.
         """
-        return self.discover_profiles_sync()
+        return await self._discover_profiles_async()
 
     def discover_profiles_sync(self) -> List[ChromeProfile]:
         """
         Synchronous version of discover_profiles.
+        
+        Note: This method runs the async version in an event loop for
+        backward compatibility. New code should use discover_profiles().
+        """
+        try:
+            loop = asyncio.get_running_loop()
+            # When already in an async context, raise error to indicate misuse
+            raise RuntimeError("Already in async context, use await discover_profiles() instead")
+        except RuntimeError:
+            # No running loop, we can use asyncio.run
+            return asyncio.run(self._discover_profiles_async())
+
+    async def _read_preferences_async(self, preferences_path: Path) -> Optional[Dict[str, Any]]:
+        """
+        Read Chrome preferences file asynchronously.
+
+        Args:
+            preferences_path: Path to the Preferences file.
+
+        Returns:
+            Dictionary with preferences data, or None if file cannot be read.
+        """
+        try:
+            async with aiofiles.open(preferences_path, "r", encoding="utf-8") as f:
+                content = await f.read()
+                return json.loads(content)
+        except (json.JSONDecodeError, IOError, UnicodeDecodeError) as e:
+            logger.debug(f"Could not read preferences from {preferences_path}: {e}")
+            return None
+
+    async def _discover_profiles_async(self) -> List[ChromeProfile]:
+        """
+        Async implementation of profile discovery.
+
+        Returns:
+            List of discovered ChromeProfile objects.
         """
         profiles = []
         user_data_dir = self._get_chrome_user_data_dir()
@@ -225,47 +262,63 @@ class ProfileManager:
         # Look for profile directories (Profile 1, Profile 2, etc.)
         profile_dirs = sorted(user_data_dir.glob("Profile *"))
 
+        # Process profiles concurrently for better performance
+        tasks = []
         for profile_dir in profile_dirs:
-            if not profile_dir.is_dir():
-                continue
+            if profile_dir.is_dir():
+                tasks.append(self._process_profile_async(profile_dir))
 
-            profile_name = profile_dir.name
-            preferences_file = profile_dir / "Preferences"
-
-            profile_info = {
-                "name": profile_name,
-                "path": profile_dir,
-                "is_default": profile_name == "Default",
-            }
-
-            # Try to read profile metadata from Preferences
-            if preferences_file.exists():
-                try:
-                    with open(preferences_file, "r") as f:
-                        prefs = json.load(f)
-
-                    # Extract display name
-                    profile_info["display_name"] = prefs.get("profile", {}).get(
-                        "name", profile_name
-                    )
-
-                    # Extract email if available
-                    profile_info["email"] = prefs.get("profile", {}).get(
-                        "auth_info", {}
-                    ).get("email", "")
-
-                    # Extract last used timestamp
-                    last_used = prefs.get("profile", {}).get("last_used", "")
-                    if last_used:
-                        profile_info["last_used"] = last_used
-
-                except (json.JSONDecodeError, IOError) as e:
-                    logger.debug(f"Could not read preferences for {profile_name}: {e}")
-
-            profiles.append(ChromeProfile(**profile_info))
+        # Gather all results
+        if tasks:
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for result in results:
+                if isinstance(result, Exception):
+                    logger.debug(f"Error processing profile: {result}")
+                elif result is not None:
+                    profiles.append(result)
 
         logger.info(f"Discovered {len(profiles)} Chrome profiles")
         return profiles
+
+    async def _process_profile_async(self, profile_dir: Path) -> Optional[ChromeProfile]:
+        """
+        Process a single profile directory asynchronously.
+
+        Args:
+            profile_dir: Path to the profile directory.
+
+        Returns:
+            ChromeProfile object or None if profile cannot be processed.
+        """
+        profile_name = profile_dir.name
+        preferences_file = profile_dir / "Preferences"
+
+        profile_info = {
+            "name": profile_name,
+            "path": profile_dir,
+            "is_default": profile_name == "Default",
+        }
+
+        # Try to read profile metadata from Preferences asynchronously
+        if preferences_file.exists():
+            prefs = await self._read_preferences_async(preferences_file)
+            if prefs:
+                # Extract display name
+                profile_info["display_name"] = prefs.get("profile", {}).get(
+                    "name", profile_name
+                )
+
+                # Extract email if available
+                profile_info["email"] = prefs.get("profile", {}).get(
+                    "auth_info", {}
+                ).get("email", "")
+
+                # Extract last used timestamp
+                last_used = prefs.get("profile", {}).get("last_used", "")
+                if last_used:
+                    profile_info["last_used"] = last_used
+
+        return ChromeProfile(**profile_info)
 
     def create_profile_from_path(self, profile_path: Path) -> ChromeProfile:
         """

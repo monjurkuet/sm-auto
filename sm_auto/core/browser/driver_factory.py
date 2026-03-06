@@ -12,6 +12,7 @@ import nodriver as uc
 
 from sm_auto.utils.logger import get_logger
 from sm_auto.utils.config import BrowserConfig
+from sm_auto.utils.security import sanitize_browser_args
 from sm_auto.core.exceptions import BrowserLaunchError
 
 logger = get_logger(__name__)
@@ -85,7 +86,7 @@ class DriverFactory:
         logger.info("Launching browser with nodriver...")
         logger.debug(f"Profile path: {profile_path or 'temporary'}")
         logger.debug(f"Headless: {use_headless}")
-        logger.debug(f"Args: {browser_args}")
+        logger.debug(f"Args: {sanitize_browser_args(browser_args)}")
 
         try:
             # Launch browser with nodriver

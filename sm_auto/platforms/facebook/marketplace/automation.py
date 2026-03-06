@@ -6,6 +6,10 @@ including search, scrolling, and data extraction.
 """
 
 import asyncio
+import json
+import os
+import tempfile
+from datetime import datetime
 from typing import Optional, List, Dict, Any
 
 from sm_auto.platforms.base.platform_base import PlatformBase, PlatformConfig
@@ -21,12 +25,14 @@ from sm_auto.core.network.cdp_interceptor import CDPInterceptor
 from sm_auto.core.network.models import NetworkCaptureEvent
 from sm_auto.utils.logger import get_logger
 from sm_auto.utils.delays import page_delay, task_delay, action_delay, micro_delay
+from sm_auto.utils.selectors import SelectorConfig
 
 logger = get_logger(__name__)
 
-
-# Facebook Marketplace selectors
-FACEBOOK_SELECTORS = {
+# Load selectors from configuration
+_selectors = SelectorConfig("facebook_marketplace")
+FACEBOOK_SELECTORS = _selectors.get_all_selectors() or {
+    # Fallback selectors if config fails to load
     # Search
     "search_input": 'input[aria-label="Search Marketplace"]',
     "search_input_alt": 'input[placeholder="Search Marketplace"]',
@@ -51,7 +57,7 @@ FACEBOOK_SELECTORS = {
 }
 
 # Facebook API patterns
-FACEBOOK_API_PATTERNS = {
+FACEBOOK_API_PATTERNS = _selectors.get_api_patterns() or {
     "graphql": "graphql",
     "marketplace_search": "CometMarketplaceSearch",
     "marketplace_feed": "MarketplaceFeed",
@@ -101,6 +107,8 @@ class FacebookMarketplaceAutomation(AutomationBase):
         self._listings: List[MarketplaceListing] = []
         self._capture_task: Optional[asyncio.Task] = None
         self.filters = filters or SearchFilters()
+        self._raw_responses: List[Dict[str, Any]] = []
+        self._current_query: str = ""
 
     async def search(
         self,
@@ -124,6 +132,7 @@ class FacebookMarketplaceAutomation(AutomationBase):
         logger.info(f"Searching Marketplace for: {query}")
 
         self.state = AutomationState.TASK_RUNNING
+        self._current_query = query
 
         # Use provided filters or fall back to instance filters
         self.filters = filters or self.filters
@@ -131,9 +140,10 @@ class FacebookMarketplaceAutomation(AutomationBase):
             logger.info(f"Applying filters: location={filters.location}, "
                        f"price_range={filters.min_price}-{filters.max_price}")
 
-        # Clear previous listings for new search
+        # Clear previous listings and raw responses for new search
         self._listings.clear()
-        logger.debug(f"Cleared previous listings. Current count: 0")
+        self._raw_responses.clear()
+        logger.debug(f"Cleared previous listings and raw responses. Current count: 0")
 
         try:
             # Start network capture BEFORE search to capture search results
@@ -175,6 +185,12 @@ class FacebookMarketplaceAutomation(AutomationBase):
                 """
                 (function() {
                     var input = document.querySelector('input[aria-label="Search Marketplace"]');
+                    if (!input) {
+                        input = document.querySelector('input[placeholder="Search Marketplace"]');
+                    }
+                    if (!input) {
+                        input = document.querySelector('input[type="search"]');
+                    }
                     if (input) {
                         var event = new KeyboardEvent('keydown', {
                             key: 'Enter',
@@ -214,6 +230,15 @@ class FacebookMarketplaceAutomation(AutomationBase):
                         await asyncio.sleep(1)
                 except Exception as e:
                     logger.debug(f"No suggestion to click: {e}")
+            
+            # If still no search URL, navigate directly to Marketplace search URL
+            current_url = self.tab.url
+            if "marketplace" not in current_url.lower() or "search" not in current_url.lower():
+                logger.info("Navigating directly to Marketplace search URL...")
+                search_url = f"https://www.facebook.com/marketplace/?search={query}"
+                await self.tab.get(search_url)
+                await page_delay()
+                logger.info(f"Navigated to: {self.tab.url}")
             
             # Wait for URL to change to include search query
             logger.info("Waiting for search URL to update...")
@@ -270,6 +295,25 @@ class FacebookMarketplaceAutomation(AutomationBase):
         Returns:
             Search input element or None.
         """
+        # First try to find the Marketplace-specific search input
+        # This is the input inside the Marketplace section, not the global Facebook search
+        marketplace_search_selectors = [
+            'input[aria-label="Search Marketplace"]',
+            'input[placeholder="Search Marketplace"]',
+            'div[aria-label="Search Marketplace"] input',
+        ]
+        
+        for selector in marketplace_search_selectors:
+            try:
+                element = await self.find(selector, timeout=3.0, raise_on_not_found=False)
+                if element:
+                    logger.debug(f"Found Marketplace search input with selector: {selector}")
+                    return element
+            except Exception as e:
+                logger.debug(f"Error with Marketplace selector {selector}: {e}")
+                continue
+        
+        # If Marketplace search not found, try the general platform selectors
         selectors = [
             self.platform.get_selector("search_input"),
             self.platform.get_selector("search_input_alt"),
@@ -282,18 +326,26 @@ class FacebookMarketplaceAutomation(AutomationBase):
             try:
                 element = await self.find(selector, timeout=3.0, raise_on_not_found=False)
                 if element:
-                    logger.debug(f"Found search input with selector: {selector}")
+                    # Verify this is actually the Marketplace search, not global search
+                    aria_label = await element.get_attribute("aria-label")
+                    placeholder = await element.get_attribute("placeholder")
+                    logger.debug(f"Found search input with selector: {selector}, aria-label: {aria_label}, placeholder: {placeholder}")
+                    
+                    # If it's the global Facebook search, skip it
+                    if aria_label and "Search Facebook" in aria_label:
+                        logger.debug("Skipping global Facebook search input, looking for Marketplace search...")
+                        continue
                     return element
             except Exception as e:
                 logger.debug(f"Error with selector {selector}: {e}")
                 continue
 
-        # Fallback to text search
+        # Fallback to text search - specifically for Marketplace
         try:
-            # Try to find input elements by placeholder
-            inputs = await self.tab.select_all("input[placeholder*='Search']")
+            # Try to find input elements by placeholder specifically for Marketplace
+            inputs = await self.tab.select_all("input[placeholder*='Search Marketplace']")
             if inputs:
-                logger.debug(f"Found {len(inputs)} inputs with 'Search' placeholder")
+                logger.debug(f"Found {len(inputs)} inputs with 'Search Marketplace' placeholder")
                 return inputs[0]
             
             # Try generic search
@@ -357,24 +409,31 @@ class FacebookMarketplaceAutomation(AutomationBase):
         print(f"[Parser] Processing GraphQL response, body length: {len(event.body)}")  # Debug
 
         try:
+            # Parse the response body to check for marketplace_search with feed_units
+            response_data = self._parse_response_body(event.body)
+            if response_data and self._has_marketplace_search_feed_units(response_data):
+                # Capture raw response with metadata
+                self._capture_raw_response(response_data)
+                logger.debug("Captured raw marketplace_search response with feed_units")
+
             # Parse listings from response
             listings = self.parser.extract_listings(event.body)
             print(f"[Parser] Extracted {len(listings)} listings from response")  # Debug
             if listings:
-                print(f"[Parser] First listing: {listings[0]}")  # Debug
+                logger.debug(f"[Parser] First listing: {listings[0]}")
                 # Apply filters to listings
                 if self.filters and (self.filters.location or self.filters.min_price or self.filters.max_price):
                     filtered_listings = [l for l in listings if self.filters.matches(l)]
                     logger.debug(f"Filtered {len(listings)} listings to {len(filtered_listings)} matching filters")
                     listings = filtered_listings
-                
+
                 # Deduplicate listings before adding
                 existing_ids = {listing.id for listing in self._listings}
                 new_listings = [l for l in listings if l.id and l.id not in existing_ids]
-                
+
                 # Log for debugging GraphQL data capture
                 logger.debug(f"Extracted {len(listings)} listings from response, {len(new_listings)} new (deduplicated)")
-                
+
                 if new_listings:
                     self._listings.extend(new_listings)
                     logger.info(f"Added {len(new_listings)} new listings. Total: {len(self._listings)}")
@@ -382,6 +441,67 @@ class FacebookMarketplaceAutomation(AutomationBase):
                     logger.debug(f"No new listings found (all duplicates). Current total: {len(self._listings)}")
         except Exception as e:
             logger.debug(f"Error parsing capture event: {e}")
+
+    def _parse_response_body(self, body: str) -> Optional[Dict[str, Any]]:
+        """
+        Parse response body to JSON.
+
+        Args:
+            body: Response body string.
+
+        Returns:
+            Parsed JSON dict or None.
+        """
+        try:
+            return json.loads(body)
+        except json.JSONDecodeError:
+            return None
+
+    def _has_marketplace_search_feed_units(self, data: Dict[str, Any]) -> bool:
+        """
+        Check if response contains marketplace_search with feed_units.
+
+        Args:
+            data: Parsed response data.
+
+        Returns:
+            True if contains marketplace_search with feed_units.
+        """
+        if not isinstance(data, dict):
+            return False
+
+        data_root = data.get("data", {})
+        if not isinstance(data_root, dict):
+            return False
+
+        feed_keys = [
+            "marketplace_search",
+            "marketplace_feed",
+            "marketplace_category_feed",
+            "marketplace_comet_browse_feed",
+        ]
+
+        for key in feed_keys:
+            if key in data_root:
+                feed_units = data_root[key].get("feed_units")
+                if feed_units:
+                    return True
+
+        return False
+
+    def _capture_raw_response(self, response_data: Dict[str, Any]) -> None:
+        """
+        Capture raw response with metadata.
+
+        Args:
+            response_data: Parsed response data.
+        """
+        capture_entry = {
+            "timestamp": datetime.utcnow().isoformat(),
+            "query": self._current_query,
+            "response": response_data,
+        }
+        self._raw_responses.append(capture_entry)
 
     async def start_capture(self) -> None:
         """Start network capture for listing extraction."""
@@ -421,6 +541,72 @@ class FacebookMarketplaceAutomation(AutomationBase):
     def clear_listings(self) -> None:
         """Clear captured listings."""
         self._listings.clear()
+
+    def get_raw_responses(self) -> List[Dict[str, Any]]:
+        """
+        Get captured raw responses.
+
+        Returns:
+            List of raw response dictionaries with metadata.
+        """
+        return self._raw_responses.copy()
+
+    def clear_raw_responses(self) -> None:
+        """Clear captured raw responses."""
+        self._raw_responses.clear()
+
+    def save_raw_responses(self, filepath: str) -> bool:
+        """
+        Save raw responses to a JSONL file.
+
+        Uses atomic write pattern (write to temp file, then rename)
+        to prevent data corruption.
+
+        Args:
+            filepath: Path to the output JSONL file.
+
+        Returns:
+            True if successful, False otherwise.
+        """
+        if not self._raw_responses:
+            logger.warning("No raw responses to save")
+            return False
+
+        try:
+            # Create directory if it doesn't exist
+            dir_path = os.path.dirname(filepath)
+            if dir_path and not os.path.exists(dir_path):
+                os.makedirs(dir_path, exist_ok=True)
+
+            # Write to temporary file first (atomic write pattern)
+            fd, temp_path = tempfile.mkstemp(
+                dir=dir_path if dir_path else ".",
+                suffix=".tmp"
+            )
+
+            try:
+                with os.fdopen(fd, 'w', encoding='utf-8') as f:
+                    for entry in self._raw_responses:
+                        json_line = json.dumps(entry, ensure_ascii=False)
+                        f.write(json_line + "\n")
+
+                # Atomic rename from temp to target
+                os.replace(temp_path, filepath)
+
+                logger.info(f"Saved {len(self._raw_responses)} raw responses to {filepath}")
+                return True
+
+            except Exception as e:
+                # Clean up temp file on error
+                try:
+                    os.unlink(temp_path)
+                except OSError:
+                    pass
+                raise e
+
+        except Exception as e:
+            logger.error(f"Failed to save raw responses to {filepath}: {e}")
+            return False
 
     async def go_to_marketplace(self) -> None:
         """Navigate to Facebook Marketplace home."""

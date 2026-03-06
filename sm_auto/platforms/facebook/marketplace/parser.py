@@ -133,7 +133,7 @@ class MarketplaceParser(JSONParserBase[MarketplaceListing]):
 
             if not results:
                 # Debug: search for any key containing 'marketplace'
-                print("[Parser] No feed_units found, searching for marketplace keys...")
+                logger.debug("[Parser] No feed_units found, searching for marketplace keys...")
                 for key in data_root.keys() if isinstance(data_root, dict) else []:
                     if "market" in key.lower():
                         print(f"[Parser] Found key with 'market': {key}")
@@ -251,12 +251,29 @@ class MarketplaceParser(JSONParserBase[MarketplaceListing]):
         price_data = listing.get("listing_price", {})
         price = price_data.get("formatted_amount") if price_data else None
 
+        # Parse numeric price from amount field
+        price_numeric = None
+        amount_str = price_data.get("amount") if price_data else None
+        if amount_str:
+            try:
+                price_numeric = float(amount_str)
+            except (ValueError, TypeError):
+                price_numeric = None
+
+        # Extract converted price from amount_with_offset_in_currency
+        price_converted = price_data.get("amount_with_offset_in_currency") if price_data else None
+
         # Extract image
         image_data = listing.get("primary_listing_photo", {})
         image = image_data.get("image", {}).get("uri") if image_data else None
 
         # Build listing ID
         listing_id = listing.get("id", "")
+
+        # Extract delivery types (default to empty list if missing)
+        delivery_types = listing.get("delivery_types", [])
+        if not isinstance(delivery_types, list):
+            delivery_types = []
 
         return MarketplaceListing(
             type="organic",
@@ -268,6 +285,13 @@ class MarketplaceParser(JSONParserBase[MarketplaceListing]):
             seller_name=seller.get("name") if seller else None,
             seller_id=seller.get("id") if seller else None,
             url=f"https://www.facebook.com/marketplace/item/{listing_id}/" if listing_id else "",
+            is_sold=listing.get("is_sold"),
+            is_pending=listing.get("is_pending"),
+            is_hidden=listing.get("is_hidden"),
+            category_id=listing.get("marketplace_listing_category_id"),
+            price_numeric=price_numeric,
+            delivery_types=delivery_types,
+            price_converted=price_converted,
         )
 
     def _parse_ad_listing(

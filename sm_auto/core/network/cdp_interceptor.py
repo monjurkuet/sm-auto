@@ -246,7 +246,7 @@ class CDPInterceptor:
             },
         )
         
-        print(f"[CDP] Pushing response to queue: {url}, body length: {len(body) if body else 0}")  # Debug
+        logger.debug(f"Captured response to queue: {url}, body length: {len(body) if body else 0}")
 
         await self.queue.put(capture_event)
 

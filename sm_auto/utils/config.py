@@ -120,33 +120,49 @@ class PlatformsConfig(BaseModel):
     )
 
 
+class JSONStorageConfig(BaseModel):
+    """JSON file storage configuration."""
+    enabled: bool = Field(default=True)
+    output_dir: str = Field(default="./output")
+    filename_template: str = Field(default="{platform}_{query}_{timestamp}.json")
+
+
+class MongoDBStorageConfig(BaseModel):
+    """MongoDB storage configuration."""
+    enabled: bool = Field(default=False)
+    database: str = Field(default="sm_auto")
+    collection: str = Field(default="facebook_marketplace")
+
+
+class StorageConfig(BaseModel):
+    """Data storage configuration."""
+    default_format: str = Field(default="json")
+    json_config: JSONStorageConfig = Field(default_factory=JSONStorageConfig)
+    mongodb: MongoDBStorageConfig = Field(default_factory=MongoDBStorageConfig)
+
+
+class LoggingConfig(BaseModel):
+    """Logging configuration."""
+    level: str = Field(default="INFO")
+    output: str = Field(default="console")
+    log_dir: str = Field(default="./logs")
+    enabled_modules: List[str] = Field(default_factory=list)
+    disabled_modules: List[str] = Field(default_factory=list)
+    format: str = Field(default="simple")
+
+
 class Settings(BaseModel):
     """Main settings class for SM-Auto framework."""
 
-    # Browser settings
     browser: BrowserConfig = Field(default_factory=BrowserConfig)
-
-    # Profile settings
     profiles: ProfileConfig = Field(default_factory=ProfileConfig)
-
-    # Delay settings
     delays: DelayConfig = Field(default_factory=DelayConfig)
-
-    # Network settings
     network: NetworkConfig = Field(default_factory=NetworkConfig)
-
-    # Platform settings
     platforms: PlatformsConfig = Field(default_factory=PlatformsConfig)
-
-    # Logging settings
-    log_level: str = Field(default="INFO", description="Logging level")
-    log_dir: Optional[str] = Field(
-        default="./logs", description="Directory for log files"
-    )
+    storage: StorageConfig = Field(default_factory=StorageConfig)
+    logging: LoggingConfig = Field(default_factory=LoggingConfig)
 
     class Config:
-        """Pydantic config."""
-
         extra = "ignore"
         validate_assignment = True
 
@@ -173,6 +189,7 @@ def load_yaml_config(config_path: Path) -> Dict[str, Any]:
 def load_config(
     config_file: Optional[Path] = None,
     env_prefix: str = "SMAUTO_",
+    dotenv_path: Optional[Path] = None,
 ) -> Settings:
     """
     Load configuration from YAML file with environment variable overrides.
@@ -185,27 +202,26 @@ def load_config(
     Args:
         config_file: Path to YAML configuration file. If None, uses default location.
         env_prefix: Prefix for environment variable overrides.
+        dotenv_path: Path to .env file. If None, uses default .env in current directory.
 
     Returns:
         Validated Settings object.
     """
-    # Determine config file path
+    # Load .env file first (lowest priority)
+    try:
+        from dotenv import load_dotenv
+        env_file = dotenv_path or Path(".env")
+        if env_file.exists():
+            load_dotenv(env_file)
+    except ImportError:
+        pass  # python-dotenv not installed
+
+    # Determine config file path - only use default_config.yaml
     if config_file is None:
-        # Try multiple default locations
-        default_paths = [
-            Path("./config/default_config.yaml"),
-            Path(__file__).parent.parent / "config" / "default_config.yaml",
-            Path.home() / ".sm_auto" / "config.yaml",
-        ]
-        for path in default_paths:
-            if path.exists():
-                config_file = path
-                break
+        config_file = Path(__file__).parent.parent / "config" / "default_config.yaml"
 
     # Load YAML config
-    yaml_config = {}
-    if config_file and config_file.exists():
-        yaml_config = load_yaml_config(config_file)
+    yaml_config = load_yaml_config(config_file) if config_file.exists() else {}
 
     # Override with environment variables
     env_config = _load_env_config(env_prefix)

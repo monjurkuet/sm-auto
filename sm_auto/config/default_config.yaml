@@ -1,21 +1,21 @@
-# SM-Auto Framework Default Configuration
-# Copy this file to your project root or ~/.sm_auto/config.yaml
+# SM-Auto Framework Configuration
+# NO BACKWARD COMPATIBILITY - Clean Implementation
 
 # Browser Configuration
 browser:
-  headless: false  # Must be false for manual CAPTCHA handling
+  headless: false
   window_width: 1920
   window_height: 1080
-  user_agent: null  # Use nodriver default
+  user_agent: null
   extra_args: []
 
 # Chrome Profile Configuration
 profiles:
-  chrome_user_data_dir: null  # Auto-detect
+  chrome_user_data_dir: null
 
 # Human-like Delay Configuration
 delays:
-  wpm: 60  # Typing speed
+  wpm: 60
   micro_delay_min: 0.08
   micro_delay_max: 0.20
   action_delay_min: 0.5
@@ -52,6 +52,24 @@ platforms:
     base_url: "https://www.tiktok.com"
     login_timeout: 120
 
+# Data Storage Configuration
+storage:
+  default_format: "mongodb"  # json, mongodb, both
+  json_config:
+    enabled: false
+    output_dir: "./output"
+    filename_template: "{platform}_{query}_{timestamp}.json"
+  mongodb:
+    enabled: true
+    database: "sm_auto"
+    collection: "facebook_marketplace"
+    # Connection URI loaded from .env MONGODB_URI
+
 # Logging Configuration
-log_level: "INFO"
-log_dir: "./logs"
+logging:
+  level: "INFO"  # DEBUG, INFO, WARNING, ERROR, CRITICAL
+  output: "console"  # console, file, both
+  log_dir: "./logs"
+  enabled_modules: ["INFO" ]  # empty = all modules
+  disabled_modules: []  # modules to silence
+  format: "simple"  # simple, detailed

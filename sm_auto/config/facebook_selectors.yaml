@@ -1,0 +1,87 @@
+# Facebook Marketplace Selectors Configuration
+# Version: 2024.1
+# 
+# This file contains CSS selectors for Facebook Marketplace automation.
+# Separating selectors from code makes it easier to update when Facebook
+# changes their DOM structure without requiring code changes.
+#
+# Configuration Loading Order (highest priority first):
+# 1. Custom user config: ~/.sm_auto/facebook_selectors.yaml
+# 2. Project config: ./config/facebook_selectors.yaml
+# 3. Default config: sm_auto/config/facebook_selectors.yaml (this file)
+
+version: "2024.1"
+platform: facebook_marketplace
+
+# CSS Selectors for DOM elements
+selectors:
+  # Search functionality
+  search:
+    input: 'input[aria-label="Search Marketplace"]'
+    input_alt: 'input[placeholder="Search Marketplace"]'
+    input_type: 'input[type="search"]'
+    container: 'div[aria-label="Search Marketplace"]'
+    button: 'button[aria-label="Search"]'
+    suggestion: '[role="option"]'
+
+  # Feed/listing elements
+  feed:
+    container: '[data-pagelet="MainFeed"]'
+    listing_card: '[data-testid="marketplace-feed-item"]'
+    listing_image: '[data-testid="feed-item-image"]'
+    listing_title: '[data-testid="feed-item-title"]'
+    listing_price: '[data-testid="feed-item-price"]'
+
+  # Navigation elements
+  navigation:
+    marketplace_link: '[data-link-id="tab_marketplace"]'
+    next_page: '[aria-label="Next Page"]'
+    back_button: '[aria-label="Back"]'
+
+  # Popups and dialogs
+  dialogs:
+    cookie_dialog: '[role="alertdialog"]'
+    cookie_accept: '[aria-label="Accept All"]'
+    login_dialog: '[data-testid="login_dialog"]'
+    popup_close: '[aria-label="Close"]'
+
+  # Authentication elements
+  auth:
+    email_input: 'input[name="email"]'
+    password_input: 'input[name="pass"]'
+    login_button: 'button[name="login"]'
+
+# API URL patterns for network interception
+api_patterns:
+  graphql: "graphql"
+  marketplace_search: "CometMarketplaceSearch"
+  marketplace_feed: "MarketplaceFeed"
+  marketplace_item: "MarketplaceItem"
+
+# Fallback chains - if primary selector fails, try these alternatives
+# Format: primary_selector: [fallback1, fallback2, ...]
+fallbacks:
+  search.input: ["search.input_alt", "search.input_type"]
+  feed.listing_card: ["div[data-testid='marketplace_search_feed_item']"]
+
+# Known site versions and compatibility
+# If Facebook updates their layout, add a new version section
+compatibility:
+  min_version: "2024.1"
+  tested_versions:
+    - "2024.1"
+  deprecated_selectors: []
+
+# Notes for maintainers
+maintenance_notes: |
+  When Facebook updates their layout:
+  1. Test existing selectors with browser dev tools
+  2. Update selectors in this file
+  3. Increment the version number
+  4. Test automation with updated selectors
+  5. Commit changes with descriptive message
+
+  Common selector patterns:
+  - data-testid attributes are most stable
+  - aria-label can change with language/locale
+  - Class names are often obfuscated/minified

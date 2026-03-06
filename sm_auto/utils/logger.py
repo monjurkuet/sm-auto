@@ -12,7 +12,7 @@ import logging
 import sys
 from pathlib import Path
 from logging.handlers import RotatingFileHandler
-from typing import Optional
+from typing import Optional, List
 
 
 class ColoredFormatter(logging.Formatter):
@@ -43,9 +43,12 @@ def setup_logger(
     file_output: bool = False,
     max_bytes: int = 10 * 1024 * 1024,  # 10 MB
     backup_count: int = 3,
+    enabled_modules: Optional[List[str]] = None,
+    disabled_modules: Optional[List[str]] = None,
+    log_format: str = "simple",
 ) -> logging.Logger:
     """
-    Set up and return a configured logger.
+    Set up and return a configured logger with module filtering support.
 
     Args:
         name: Name of the logger (usually __name__).
@@ -55,12 +58,21 @@ def setup_logger(
         file_output: Enable file output with rotation.
         max_bytes: Maximum size of log file before rotation.
         backup_count: Number of backup log files to keep.
+        enabled_modules: List of modules to enable logging for (empty = all).
+        disabled_modules: List of modules to explicitly disable logging for.
+        log_format: Log format style (simple or detailed).
 
     Returns:
         Configured logger instance.
     """
     logger = logging.getLogger(name)
     logger.setLevel(level)
+
+    # Check if this module should be filtered
+    if enabled_modules and name not in enabled_modules:
+        logger.setLevel(logging.WARNING)  # Reduce noise
+    if disabled_modules and name in disabled_modules:
+        logger.setLevel(logging.CRITICAL + 1)  # Effectively disabled
 
     # Avoid adding handlers multiple times
     if logger.handlers:

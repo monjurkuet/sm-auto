@@ -12,6 +12,39 @@ from typing import Optional, TYPE_CHECKING
 if TYPE_CHECKING:
     from nodriver.core.tab import Tab
     from nodriver.core.element import Element
+    from sm_auto.utils.config import Settings
+
+# Module-level cache for settings to avoid repeated loading
+_settings_cache: Optional["Settings"] = None
+
+
+def _get_cached_settings() -> "Settings":
+    """
+    Get cached settings to avoid repeated loading.
+    
+    Settings are loaded once and cached at the module level for the lifetime
+    of the process. This improves performance by avoiding repeated config file
+    reads and YAML parsing on every delay call.
+    
+    Returns:
+        Cached Settings instance.
+    """
+    global _settings_cache
+    if _settings_cache is None:
+        from sm_auto.utils.config import get_settings
+        _settings_cache = get_settings()
+    return _settings_cache
+
+
+def clear_settings_cache() -> None:
+    """
+    Clear the settings cache.
+    
+    Call this if configuration changes during runtime and you need
+    to reload settings on the next delay call.
+    """
+    global _settings_cache
+    _settings_cache = None
 
 
 async def micro_delay() -> None:
@@ -21,9 +54,7 @@ async def micro_delay() -> None:
     Range: 80-200ms
     Use: Between individual keystrokes, after mouse clicks settle
     """
-    from sm_auto.utils.config import get_settings
-
-    settings = get_settings()
+    settings = _get_cached_settings()
     delay = random.uniform(
         settings.delays.micro_delay_min, settings.delays.micro_delay_max
     )
@@ -37,9 +68,7 @@ async def action_delay() -> None:
     Range: 0.5-2.5s
     Use: Between search and scroll, between clicks on related elements
     """
-    from sm_auto.utils.config import get_settings
-
-    settings = get_settings()
+    settings = _get_cached_settings()
     delay = random.uniform(
         settings.delays.action_delay_min, settings.delays.action_delay_max
     )
@@ -53,9 +82,7 @@ async def task_delay() -> None:
     Range: 2-8s
     Use: After finishing a search before starting to scrape, between major operations
     """
-    from sm_auto.utils.config import get_settings
-
-    settings = get_settings()
+    settings = _get_cached_settings()
     delay = random.uniform(
         settings.delays.task_delay_min, settings.delays.task_delay_max
     )
@@ -69,9 +96,7 @@ async def page_delay() -> None:
     Range: 1.5-4s
     Use: After page.load(), after clicking navigation links
     """
-    from sm_auto.utils.config import get_settings
-
-    settings = get_settings()
+    settings = _get_cached_settings()
     delay = random.uniform(
         settings.delays.page_delay_min, settings.delays.page_delay_max
     )
@@ -85,9 +110,7 @@ async def reading_pause() -> None:
     Range: 3-12s
     Use: Randomly during scrolling sessions to simulate reading listings
     """
-    from sm_auto.utils.config import get_settings
-
-    settings = get_settings()
+    settings = _get_cached_settings()
     delay = random.uniform(
         settings.delays.reading_pause_min, settings.delays.reading_pause_max
     )
@@ -120,9 +143,7 @@ async def human_type(
         wpm: Words per minute for typing speed (uses config default if None).
         clear_first: Whether to clear the input before typing.
     """
-    from sm_auto.utils.config import get_settings
-
-    settings = get_settings()
+    settings = _get_cached_settings()
     typing_wpm = wpm or settings.delays.wpm
 
     # Calculate delay per character based on WPM

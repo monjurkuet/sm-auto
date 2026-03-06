@@ -14,6 +14,12 @@ from sm_auto.utils.delays import (
     human_click,
     random_think_pause,
 )
+from sm_auto.utils.security import (
+    validate_profile_path,
+    sanitize_browser_args,
+    sanitize_url_for_logging,
+)
+from sm_auto.utils.selectors import SelectorConfig, get_selectors
 
 __all__ = [
     "get_logger",
@@ -31,4 +37,9 @@ __all__ = [
     "human_scroll",
     "human_click",
     "random_think_pause",
+    "validate_profile_path",
+    "sanitize_browser_args",
+    "sanitize_url_for_logging",
+    "SelectorConfig",
+    "get_selectors",
 ]

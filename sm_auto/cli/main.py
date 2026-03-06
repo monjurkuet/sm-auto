@@ -7,18 +7,20 @@ Command-line interface for the SM-Auto web automation framework.
 import asyncio
 import sys
 from pathlib import Path
+from typing import Optional
 
 import click
+from click import Context
 
 from sm_auto import __version__
 from sm_auto.utils.logger import get_logger, setup_logger
-from sm_auto.utils.config import load_config, get_settings
+from sm_auto.utils.config import load_config, get_settings, Settings
 from sm_auto.core.browser.profile_manager import ProfileManager
 
 logger = get_logger(__name__)
 
 
-def get_profile_manager_with_config(user_data_dir: str = None) -> ProfileManager:
+def get_profile_manager_with_config(user_data_dir: Optional[str] = None) -> ProfileManager:
     """
     Get a ProfileManager instance, using config value as default for user_data_dir.
     """
@@ -44,27 +46,41 @@ def get_profile_manager_with_config(user_data_dir: str = None) -> ProfileManager
     "--verbose",
     "-v",
     is_flag=True,
-    help="Enable verbose output",
+    help="Enable verbose output (DEBUG level)",
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False),
+    help="Set logging level",
 )
 @click.pass_context
-def cli(ctx, config, verbose):
+def cli(ctx: Context, config: Optional[str], verbose: bool, log_level: Optional[str]) -> None:
     """
     SM-Auto: Universal Web Automation Framework
 
     A flexible automation framework built on nodriver for scraping
     Facebook, Instagram, TikTok, and other platforms.
     """
-    # Load configuration
+    # Load configuration (will also load .env file)
     settings = load_config(Path(config) if config else None)
 
+    # Determine log level priority: CLI arg > verbose flag > config
+    if verbose:
+        effective_level = "DEBUG"
+    elif log_level:
+        effective_level = log_level.upper()
+    else:
+        effective_level = settings.logging.level
+
     # Set up logging
-    log_level = "DEBUG" if verbose else settings.log_level
-    setup_logger("sm_auto", level=getattr(__import__("logging"), log_level))
+    import logging
+    setup_logger("sm_auto", level=getattr(logging, effective_level))
 
     # Store in context
     ctx.ensure_object(dict)
     ctx.obj["settings"] = settings
     ctx.obj["verbose"] = verbose
+    ctx.obj["log_level"] = effective_level
 
 
 # Import CLI commands
@@ -77,7 +93,7 @@ cli.add_command(run)
 
 @cli.command()
 @click.option("--platform", "-p", "platform_name", type=click.Choice(["facebook", "instagram", "tiktok"]))
-def list_platforms(platform_name):
+def list_platforms(platform_name: Optional[str]) -> None:
     """List supported platforms and their capabilities."""
     platforms = {
         "facebook": {
@@ -121,7 +137,7 @@ def list_platforms(platform_name):
 @click.option("--profile", "-P", help="Profile name to use")
 @click.option("--platform", "-p", "platform_name", default="facebook", type=click.Choice(["facebook", "instagram", "tiktok"]))
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory")
-def auth(profile, platform_name, user_data_dir):
+def auth(profile: Optional[str], platform_name: str, user_data_dir: Optional[str]) -> None:
     """
     Interactive authentication for a platform.
 
@@ -138,7 +154,7 @@ def auth(profile, platform_name, user_data_dir):
         profile_mgr = get_profile_manager_with_config(user_data_dir)
 
         if profile:
-            profiles = profile_mgr.discover_profiles()
+            profiles = profile_mgr.discover_profiles_sync()
             profile_obj = next(
                 (p for p in profiles if p.name.lower() == profile.lower()
                  or (p.display_name or "").lower() == profile.lower()),
@@ -187,7 +203,7 @@ def auth(profile, platform_name, user_data_dir):
     asyncio.run(auth_flow())
 
 
-def main():
+def main() -> None:
     """Main entry point."""
     cli(obj={})
 

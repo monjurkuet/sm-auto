@@ -33,6 +33,34 @@ class MarketplaceListing(BaseModel):
         default=None,
         description="Additional listing data",
     )
+    is_sold: Optional[bool] = Field(
+        default=None,
+        description="Whether the listing is marked as sold",
+    )
+    is_pending: Optional[bool] = Field(
+        default=None,
+        description="Whether the listing is pending sale",
+    )
+    is_hidden: Optional[bool] = Field(
+        default=None,
+        description="Whether the listing is hidden",
+    )
+    category_id: Optional[str] = Field(
+        default=None,
+        description="Marketplace listing category ID",
+    )
+    price_numeric: Optional[float] = Field(
+        default=None,
+        description="Numeric price value parsed from listing",
+    )
+    delivery_types: List[str] = Field(
+        default_factory=list,
+        description="Available delivery types for the listing",
+    )
+    price_converted: Optional[str] = Field(
+        default=None,
+        description="Converted price with currency offset",
+    )
 
     class Config:
         """Pydantic config."""
@@ -49,6 +77,13 @@ class MarketplaceListing(BaseModel):
                 "seller_id": "100001234567890",
                 "url": "https://www.facebook.com/marketplace/item/1234567890/",
                 "scraped_at": "2024-01-01T00:00:00Z",
+                "is_sold": False,
+                "is_pending": False,
+                "is_hidden": False,
+                "category_id": "electronic",
+                "price_numeric": 899.0,
+                "delivery_types": ["LOCAL_PICKUP", "SHIPPING"],
+                "price_converted": "$899.00",
             }
         }
 
