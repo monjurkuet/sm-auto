@@ -10,9 +10,10 @@ import os
 import re
 import sys
 import tempfile
+import csv
 from pathlib import Path
 from datetime import datetime
-from typing import Optional
+from typing import Optional, List
 
 import click
 
@@ -27,6 +28,11 @@ from sm_auto.platforms.facebook.marketplace.automation import (
     FacebookMarketplacePlatform,
     FacebookMarketplaceAutomation,
 )
+from sm_auto.platforms.facebook.page.automation import (
+    FacebookPagePlatform,
+    FacebookPageAutomation,
+)
+from sm_auto.platforms.facebook.page.storage import FacebookPageStorage
 
 logger = get_logger(__name__)
 
@@ -369,3 +375,327 @@ def test_automation(profile: Optional[str], user_data_dir: Optional[str]) -> Non
             click.echo("Done.")
 
     asyncio.run(run_test())
+
+
+# === Facebook Page Tracking Commands ===
+
+def _read_csv_urls(csv_path: str) -> List[str]:
+    """
+    Read URLs from a CSV file.
+    
+    Supports single column or URLs in any column.
+    
+    Args:
+        csv_path: Path to CSV file.
+        
+    Returns:
+        List of URLs.
+    """
+    urls = []
+    with open(csv_path, 'r', encoding='utf-8') as f:
+        reader = csv.reader(f)
+        for row in reader:
+            for cell in row:
+                cell = cell.strip()
+                if cell and (cell.startswith('http') or cell.startswith('www.') or cell.startswith('facebook.com')):
+                    # Clean up the URL
+                    if cell.startswith('www.'):
+                        cell = 'https://' + cell
+                    elif cell.startswith('facebook.com'):
+                        cell = 'https://www.' + cell
+                    urls.append(cell)
+    return urls
+
+
+@run.command("facebook-page")
+@click.option("--csv", "csv_file", type=click.Path(exists=True), help="CSV file with page URLs (one per line)")
+@click.option("--update", is_flag=True, help="Update existing pages from database")
+@click.option("--update-url", help="Update specific page by URL")
+@click.option("--update-id", help="Update specific page by page_id")
+@click.option("--stale-hours", default=24, help="Update pages not checked in X hours (default: 24)")
+@click.option("--profile", "-p", help="Profile name to use (e.g., 'Your Chrome', 'Person 1')")
+@click.option("--profile-path", type=click.Path(), help="Direct path to Chrome profile (e.g., /root/.config/google-chrome/Default)")
+@click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory")
+@click.option("--headless", is_flag=True, help="Run in headless mode")
+@click.option(
+    "--storage",
+    type=click.Choice(["json", "mongodb", "both"], case_sensitive=False),
+    default="mongodb",
+    help="Storage backend (default: mongodb)"
+)
+@click.option(
+    "--log-level",
+    type=click.Choice(["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"], case_sensitive=False),
+    help="Override logging level for this command"
+)
+def facebook_page(
+    csv_file: Optional[str],
+    update: bool,
+    update_url: Optional[str],
+    update_id: Optional[str],
+    stale_hours: int,
+    profile: Optional[str],
+    profile_path: Optional[str],
+    user_data_dir: Optional[str],
+    headless: bool,
+    storage: str,
+    log_level: Optional[str],
+) -> None:
+    """
+    Track Facebook pages and their metrics.
+    
+    This command can:
+    - Import new pages from a CSV file
+    - Update existing pages from the database
+    - Update stale pages (not checked in X hours)
+    - Update a specific page by URL or page_id
+    
+    Examples:
+        # Import new pages from CSV
+        sm-auto run facebook-page --csv pages.csv --profile "Personal"
+        
+        # Update all existing pages
+        sm-auto run facebook-page --update --profile "Personal"
+        
+        # Update pages not checked in 24 hours
+        sm-auto run facebook-page --update --stale-hours 24 --profile "Personal"
+        
+        # Update specific page by URL
+        sm-auto run facebook-page --update-url "https://www.facebook.com/cvrng" --profile "Personal"
+        
+        # Update specific page by ID
+        sm-auto run facebook-page --update-id "100063979652930" --profile "Personal"
+    """
+
+    async def run_automation():
+        # Override log level if specified
+        if log_level:
+            import logging
+            logging.getLogger("sm_auto").setLevel(getattr(logging, log_level))
+        
+        # Get settings
+        settings = get_settings()
+        
+        # Determine operation mode
+        modes = []
+        if csv_file:
+            modes.append("import")
+        if update:
+            modes.append("update_all")
+        if update_url:
+            modes.append("update_url")
+        if update_id:
+            modes.append("update_id")
+        if stale_hours and stale_hours > 0:
+            # Default to stale update if no other mode specified
+            if not modes:
+                modes.append("update_stale")
+        
+        if not modes:
+            click.echo("Error: Please specify an operation mode (--csv, --update, --update-url, --update-id, or --stale-hours)", err=True)
+            return
+        
+        click.echo(f"\n=== Facebook Page Tracking ===")
+        click.echo(f"Operation: {', '.join(modes) if modes else 'none'}")
+        click.echo(f"Storage: {storage}")
+        click.echo(f"Profile: {profile or profile_path or 'default'}")
+        click.echo()
+        
+        # Initialize storage
+        storage_client = None
+        if storage in ("mongodb", "both"):
+            try:
+                storage_client = FacebookPageStorage(
+                    database=settings.storage.mongodb.database,
+                )
+                await storage_client.connect()
+                click.echo("MongoDB storage connected")
+            except ValueError as e:
+                click.echo(f"Warning: MongoDB not available: {e}", err=True)
+                if storage == "mongodb":
+                    return
+            except Exception as e:
+                click.echo(f"Error connecting to MongoDB: {e}", err=True)
+                if storage == "mongodb":
+                    return
+        
+        # Get profile
+        if profile_path:
+            # Use direct profile path
+            from sm_auto.core.browser.profile_manager import ChromeProfile
+            from pathlib import Path
+            profile_obj = Path(profile_path)
+            if not profile_obj.exists():
+                click.echo(f"Error: Profile path does not exist: {profile_path}", err=True)
+                return
+            selected = ChromeProfile(
+                name=profile_obj.name,
+                path=profile_obj,
+                is_default=True,
+            )
+            click.echo(f"Using profile path: {selected.path}")
+        else:
+            profile_mgr = get_profile_manager_with_config(user_data_dir)
+            profiles = await profile_mgr.discover_profiles()
+
+            if not profiles:
+                click.echo("Error: No Chrome profiles found.", err=True)
+                return
+
+            # Select profile
+            if profile:
+                selected = next(
+                    (p for p in profiles if p.name.lower() == profile.lower()
+                     or (p.display_name or "").lower() == profile.lower()),
+                    None,
+                )
+                if not selected:
+                    click.echo(f"Error: Profile not found: {profile}", err=True)
+                    return
+            else:
+                selected = next((p for p in profiles if p.is_default), profiles[0])
+
+            click.echo(f"Using profile: {selected.name}")
+            await profile_mgr.verify_profile(selected)
+
+        # Initialize session manager
+        session_mgr = SessionManager()
+
+        try:
+            click.echo("Launching browser...")
+            await session_mgr.start(profile_path=selected.path, headless=headless)
+
+            # Initialize platform
+            click.echo("Initializing Facebook Page platform...")
+            platform = FacebookPagePlatform(session_mgr)
+            await platform.initialize()
+
+            # Create automation with storage
+            automation = FacebookPageAutomation(platform, storage_client)
+
+            # Perform operations
+            total_success = 0
+            total_failed = 0
+            
+            # Mode 1: Import from CSV
+            if csv_file:
+                click.echo(f"\n--- Importing pages from {csv_file} ---")
+                urls = _read_csv_urls(csv_file)
+                click.echo(f"Found {len(urls)} URLs")
+                
+                for url in urls:
+                    click.echo(f"\nProcessing: {url}")
+                    result = await automation.update_page(url)
+                    if result.success:
+                        click.echo(f"  ✓ Success: {result.page_id}")
+                        if result.page_updated:
+                            click.echo(f"    Page updated")
+                        if result.metric_inserted:
+                            click.echo(f"    Metric recorded")
+                        total_success += 1
+                    else:
+                        click.echo(f"  ✗ Failed: {result.error}")
+                        total_failed += 1
+                    
+                    await asyncio.sleep(2)  # Delay between pages
+            
+            # Mode 2: Update all pages
+            elif update:
+                click.echo("\n--- Updating all pages ---")
+                if not storage_client:
+                    click.echo("Error: Storage required for --update", err=True)
+                    return
+                
+                pages = await storage_client.get_all_pages()
+                click.echo(f"Found {len(pages)} pages to update")
+                
+                for page in pages:
+                    page_url = page.get("page_url")
+                    page_id = page.get("page_id")
+                    click.echo(f"\nUpdating: {page_url}")
+                    
+                    result = await automation.update_page(page_url)
+                    if result.success:
+                        click.echo(f"  ✓ Success")
+                        total_success += 1
+                    else:
+                        click.echo(f"  ✗ Failed: {result.error}")
+                        total_failed += 1
+                    
+                    await asyncio.sleep(2)
+            
+            # Mode 3: Update by URL
+            elif update_url:
+                click.echo(f"\n--- Updating page by URL: {update_url} ---")
+                
+                result = await automation.update_page(update_url)
+                if result.success:
+                    click.echo(f"✓ Success: {result.page_id}")
+                    total_success += 1
+                else:
+                    click.echo(f"✗ Failed: {result.error}")
+                    total_failed += 1
+            
+            # Mode 4: Update by page_id
+            elif update_id:
+                click.echo(f"\n--- Updating page by ID: {update_id} ---")
+                
+                if not storage_client:
+                    click.echo("Error: Storage required for --update-id", err=True)
+                    return
+                
+                page = await storage_client.get_page_by_id(update_id)
+                if not page:
+                    click.echo(f"Error: Page not found: {update_id}", err=True)
+                    return
+                
+                page_url = page.get("page_url")
+                result = await automation.update_page(page_url)
+                if result.success:
+                    click.echo(f"✓ Success")
+                    total_success += 1
+                else:
+                    click.echo(f"✗ Failed: {result.error}")
+                    total_failed += 1
+            
+            # Mode 5: Update stale pages (default)
+            else:
+                if not storage_client:
+                    click.echo("Error: Storage required for stale page updates", err=True)
+                    return
+                
+                click.echo(f"\n--- Updating stale pages (not checked in {stale_hours} hours) ---")
+                pages = await storage_client.get_stale_pages(hours=stale_hours)
+                click.echo(f"Found {len(pages)} stale pages")
+                
+                for page in pages:
+                    page_url = page.get("page_url")
+                    click.echo(f"\nUpdating: {page_url}")
+                    
+                    result = await automation.update_page(page_url)
+                    if result.success:
+                        click.echo(f"  ✓ Success")
+                        total_success += 1
+                    else:
+                        click.echo(f"  ✗ Failed: {result.error}")
+                        total_failed += 1
+                    
+                    await asyncio.sleep(2)
+
+            # Summary
+            click.echo(f"\n=== Summary ===")
+            click.echo(f"Successful: {total_success}")
+            click.echo(f"Failed: {total_failed}")
+
+        except KeyboardInterrupt:
+            click.echo("\nInterrupted by user.")
+        except Exception as e:
+            click.echo(f"Error: {e}", err=True)
+            logger.exception("Automation failed")
+        finally:
+            if storage_client:
+                await storage_client.close()
+            await session_mgr.stop()
+            click.echo("Done.")
+
+    asyncio.run(run_automation())
