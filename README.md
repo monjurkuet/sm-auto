@@ -216,10 +216,15 @@ sm_auto/
 │   │   ├── automation_base.py    # State machine & helpers
 │   │   └── parser_base.py        # Parser interface
 │   └── facebook/
-│       └── marketplace/
-│           ├── models.py         # Marketplace data models
-│           ├── parser.py         # GraphQL response parser
-│           └── automation.py     # Marketplace automation
+│       ├── marketplace/
+│       │   ├── models.py         # Marketplace data models
+│       │   ├── parser.py         # GraphQL response parser
+│       │   └── automation.py     # Marketplace automation
+│       └── page/
+│           ├── models.py         # Page data models
+│           ├── extractor.py      # HTML/ARIA/GraphQL extraction
+│           ├── automation.py     # Page automation with network capture
+│           └── storage.py        # MongoDB storage
 ├── utils/
 │   ├── logger.py                 # Centralized logging
 │   ├── config.py                 # Configuration management
@@ -401,6 +406,93 @@ sm-auto run facebook-marketplace -q "macbook" --save-raw --raw-output ./data/raw
 sm-auto run facebook-marketplace -q "furniture" --storage mongodb --save-raw
 ```
 
+### Facebook Page Tracking
+
+Facebook Page module provides comprehensive page tracking with hybrid data extraction:
+
+```python
+from sm_auto.core.browser.profile_manager import ProfileManager
+from sm_auto.core.browser.session_manager import SessionManager
+from sm_auto.platforms.facebook.page.automation import create_page_automation
+
+async def track_page():
+    # Setup
+    profile_mgr = ProfileManager()
+    profiles = await profile_mgr.discover_profiles()
+    await profile_mgr.verify_profile(profiles[0])
+    copied_path = await profile_mgr.copy_profile(profiles[0])
+    
+    session_mgr = SessionManager()
+    await session_mgr.start(profile_path=copied_path)
+    
+    # Create automation with network capture enabled
+    automation = await create_page_automation(
+        session_manager=session_mgr,
+        storage=None,  # Or MongoDB storage
+        capture_service=capture_service,  # Optional
+        save_debug_html=False,
+        max_scrolls=15,
+    )
+    
+    # Extract page data (single page)
+    result = await automation.extract_page("https://facebook.com/cvrng")
+    print(f"Page: {result.page_name}, Likes: {result.likes}")
+    
+    # Or extract deep data (main + transparency + details)
+    deep_result = await automation.extract_deep_page_data("https://facebook.com/cvrng")
+    print(f"Created: {deep_result.page_created}")
+    
+    await session_mgr.stop()
+```
+
+#### Features
+
+| Feature | Description |
+|---------|-------------|
+| **Hybrid Extraction** | Combines GraphQL, ARIA labels, and HTML parsing |
+| **Network Capture** | Intercepts GraphQL responses for primary data |
+| **Multi-Page Navigation** | Navigates to Transparency and Details pages |
+| **Deep Extraction** | Extracts page creation date and comprehensive info |
+| **Configurable Scrolling** | Adjustable scroll count for lazy-loaded content |
+| **MongoDB Storage** | Stores page data and time-series metrics |
+
+#### Extracted Data
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `page_id` | str | Unique Facebook page ID |
+| `page_name` | str | Official page name |
+| `username` | str | Page username/vanity |
+| `likes` | str | Total likes (formatted) |
+| `likes_numeric` | int | Likes as integer |
+| `followers` | str | Total followers (formatted) |
+| `followers_numeric` | int | Followers as integer |
+| `talking_about` | str | People talking about this |
+| `category` | str | Page category |
+| `location` | str | Page location |
+| `is_verified` | bool | Verification status |
+| `page_created` | str | Page creation date (from transparency) |
+| `profile_image_url` | str | Profile image URL |
+| `cover_image_url` | str | Cover image URL |
+| `description` | str | Page description |
+| `phone` | str | Contact phone |
+| `email` | str | Contact email |
+| `website` | str | Website URL |
+
+#### Extraction Methods
+
+The module uses a priority-based hybrid extraction approach:
+
+1. **GraphQL** (highest priority) - Data from intercepted API responses
+2. **ARIA** - Metrics from `aria-label` attributes
+3. **HTML** (fallback) - Meta tags and DOM parsing
+
+```python
+# Example: Data priority in action
+result = await automation.extract_page(url)
+# GraphQL data takes precedence over ARIA, which takes precedence over HTML
+```
+
 ### JSONL Format
 
 Each line in the JSONL file is a complete GraphQL response:
@@ -449,6 +541,7 @@ The framework includes built-in delays to simulate realistic human behavior:
 | Platform | Status | Features |
 | --- | --- | --- |
 | Facebook Marketplace | ✓ Stable | Search, feed scraping, network capture, MongoDB/JSON storage |
+| Facebook Page | ✓ Stable | Page tracking, hybrid extraction, multi-page navigation, GraphQL capture |
 | Instagram | ○ Planned | Profile scraping, hashtag search |
 | TikTok | ○ Planned | Video scraping, user profiles |
 

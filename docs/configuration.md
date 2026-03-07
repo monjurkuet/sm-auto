@@ -202,6 +202,21 @@ platforms:
       category: "electronics"  # Category filter (optional)
 ```
 
+### Facebook Page
+
+```yaml
+platforms:
+  facebook:
+    page:
+      save_debug_html: false  # Save HTML for debugging
+      max_scrolls: 15         # Scroll iterations for lazy loading
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `save_debug_html` | bool | false | Save HTML files for debugging |
+| `max_scrolls` | int | 15 | Maximum scroll iterations |
+
 ---
 
 ## Selector Configuration

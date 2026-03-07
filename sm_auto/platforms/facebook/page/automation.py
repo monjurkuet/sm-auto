@@ -100,11 +100,6 @@ class FacebookPagePlatform(PlatformBase):
         self._initialized = True
         logger.info("Facebook Page platform initialized")
 
-    async def initialize(self) -> None:
-        """Initialize the platform."""
-        self._initialized = True
-        logger.info("Facebook Page platform initialized")
-
     async def is_logged_in(self) -> bool:
         """
         Check if user is logged in.
@@ -905,6 +900,7 @@ class FacebookPageAutomation(AutomationBase):
                 "website": extraction.website,
                 "phone": extraction.phone,
                 "is_verified": extraction.is_verified,
+                "page_created": extraction.page_created,
             }
 
             # Save to storage
