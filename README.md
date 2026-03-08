@@ -455,6 +455,7 @@ async def track_page():
 | **Deep Extraction** | Extracts page creation date and comprehensive info |
 | **Configurable Scrolling** | Adjustable scroll count for lazy-loaded content |
 | **MongoDB Storage** | Stores page data and time-series metrics |
+| **Post Extraction** | Extract timeline posts with engagement metrics |
 
 #### Extracted Data
 
@@ -492,6 +493,42 @@ The module uses a priority-based hybrid extraction approach:
 result = await automation.extract_page(url)
 # GraphQL data takes precedence over ARIA, which takes precedence over HTML
 ```
+
+#### Extracting Posts
+
+You can also extract timeline posts from a page:
+
+```python
+# Extract posts from a page's timeline
+posts_result = await automation.extract_posts(
+    "https://facebook.com/cvrng",
+    max_scrolls=10  # Scroll to load more posts
+)
+
+print(f"Found {posts_result.posts_count} posts")
+
+for post in posts_result.posts:
+    print(f"Post: {post.text[:50]}...")
+    print(f"  Likes: {post.likes}, Comments: {post.comments}, Shares: {post.shares}")
+    print(f"  Posted: {post.created_at}")
+    if post.reactions:
+        print(f"  Reactions: {post.reactions}")
+```
+
+#### Post Data Fields
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `post_id` | str | Unique post ID |
+| `post_url` | str | Full URL to the post |
+| `text` | str | Post content/text |
+| `created_at` | datetime | Post creation timestamp |
+| `likes` | int | Like count |
+| `comments` | int | Comment count |
+| `shares` | int | Share count |
+| `reactions` | dict | Reaction breakdown (e.g., `{"like": 100, "love": 50}`) |
+| `is_sponsored` | bool | Whether post is sponsored |
+| `media_urls` | list | List of media URLs (images, videos) |
 
 ### JSONL Format
 

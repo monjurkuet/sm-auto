@@ -31,8 +31,10 @@ from sm_auto.platforms.facebook.marketplace.automation import (
 from sm_auto.platforms.facebook.page.automation import (
     FacebookPagePlatform,
     FacebookPageAutomation,
+    FacebookPageConfig,
 )
 from sm_auto.platforms.facebook.page.storage import FacebookPageStorage
+from sm_auto.platforms.facebook.page.models import FacebookPage, PostExtractionResult
 
 logger = get_logger(__name__)
 
@@ -407,12 +409,61 @@ def _read_csv_urls(csv_path: str) -> List[str]:
     return urls
 
 
+def _save_posts_to_file(posts_result: PostExtractionResult, output_path: str) -> None:
+    """
+    Save posts to a JSON file.
+    
+    Args:
+        posts_result: The posts extraction result.
+        output_path: Path to output file.
+    """
+    import os
+    from pathlib import Path
+    
+    # Create directory if it doesn't exist
+    output_dir = os.path.dirname(output_path)
+    if output_dir:
+        Path(output_dir).mkdir(parents=True, exist_ok=True)
+    
+    # Convert to JSON-serializable format
+    data = {
+        "page_id": posts_result.page_id,
+        "page_url": posts_result.page_url,
+        "posts_count": posts_result.posts_count,
+        "extraction_method": posts_result.extraction_method,
+        "extracted_at": posts_result.extracted_at.isoformat() if posts_result.extracted_at else None,
+        "posts": [
+            {
+                "post_id": post.post_id,
+                "post_url": post.post_url,
+                "text": post.text,
+                "created_at": post.created_at.isoformat() if post.created_at else None,
+                "likes": post.likes,
+                "comments": post.comments,
+                "shares": post.shares,
+                "reactions": post.reactions,
+                "is_sponsored": post.is_sponsored,
+                "media_urls": post.media_urls,
+            }
+            for post in posts_result.posts
+        ],
+    }
+    
+    with open(output_path, 'w', encoding='utf-8') as f:
+        json.dump(data, f, indent=2, ensure_ascii=False)
+    
+    click.echo(f"Posts saved to: {output_path}")
+
+
 @run.command("facebook-page")
 @click.option("--csv", "csv_file", type=click.Path(exists=True), help="CSV file with page URLs (one per line)")
 @click.option("--update", is_flag=True, help="Update existing pages from database")
 @click.option("--update-url", help="Update specific page by URL")
 @click.option("--update-id", help="Update specific page by page_id")
 @click.option("--stale-hours", default=24, help="Update pages not checked in X hours (default: 24)")
+@click.option("--posts", is_flag=True, help="Extract posts from page timeline")
+@click.option("--max-scrolls", default=None, type=int, help="Max scroll iterations for post extraction (default: from config)")
+@click.option("--output", "-o", help="Output file for posts JSON (default: stdout)")
 @click.option("--profile", "-p", help="Profile name to use (e.g., 'Your Chrome', 'Person 1')")
 @click.option("--profile-path", type=click.Path(), help="Direct path to Chrome profile (e.g., /root/.config/google-chrome/Default)")
 @click.option("--user-data-dir", type=click.Path(), help="Chrome user data directory")
@@ -434,6 +485,9 @@ def facebook_page(
     update_url: Optional[str],
     update_id: Optional[str],
     stale_hours: int,
+    posts: bool,
+    max_scrolls: int,
+    output: Optional[str],
     profile: Optional[str],
     profile_path: Optional[str],
     user_data_dir: Optional[str],
@@ -449,6 +503,7 @@ def facebook_page(
     - Update existing pages from the database
     - Update stale pages (not checked in X hours)
     - Update a specific page by URL or page_id
+    - Extract posts from page timeline
     
     Examples:
         # Import new pages from CSV
@@ -465,6 +520,15 @@ def facebook_page(
         
         # Update specific page by ID
         sm-auto run facebook-page --update-id "100063979652930" --profile "Personal"
+        
+        # Extract posts from a page
+        sm-auto run facebook-page --posts --update-url "https://www.facebook.com/cvrng" --profile "Personal"
+        
+        # Extract posts with more scrolling
+        sm-auto run facebook-page --posts --update-url "https://www.facebook.com/cvrng" --max-scrolls 20 --profile "Personal"
+        
+        # Save posts to file
+        sm-auto run facebook-page --posts --update-url "https://www.facebook.com/cvrng" -o posts.json --profile "Personal"
     """
 
     async def run_automation():
@@ -567,11 +631,28 @@ def facebook_page(
 
             # Initialize platform
             click.echo("Initializing Facebook Page platform...")
-            platform = FacebookPagePlatform(session_mgr)
+            
+            # Get max_scrolls from config, CLI overrides if provided
+            config_max_scrolls = settings.platforms.facebook.max_scrolls
+            effective_max_scrolls = max_scrolls if max_scrolls is not None else config_max_scrolls
+            
+            platform_config = FacebookPageConfig(max_scrolls=effective_max_scrolls)
+            platform = FacebookPagePlatform(session_mgr, platform_config)
             await platform.initialize()
 
             # Create automation with storage
             automation = FacebookPageAutomation(platform, storage_client)
+
+            # Set up network capture for GraphQL data extraction
+            capture_queue = asyncio.Queue()
+            interceptor = CDPInterceptor(session_mgr.tab, capture_queue, url_filters=["graphql", "api"])
+            capture_service = CaptureService()
+
+            await interceptor.start()
+            await capture_service.start(interceptor)
+
+            automation.capture_service = capture_service
+            await automation.start_capture()
 
             # Perform operations
             total_success = 0
@@ -596,6 +677,14 @@ def facebook_page(
                     else:
                         click.echo(f"  ✗ Failed: {result.error}")
                         total_failed += 1
+                    
+                    # Extract posts if requested
+                    if posts:
+                        click.echo(f"    Extracting posts...")
+                        posts_result = await automation.extract_and_save_posts(url, max_scrolls=max_scrolls)
+                        click.echo(f"    Found {posts_result.posts_count} posts")
+                        if output:
+                            _save_posts_to_file(posts_result, output)
                     
                     await asyncio.sleep(2)  # Delay between pages
             
@@ -622,6 +711,14 @@ def facebook_page(
                         click.echo(f"  ✗ Failed: {result.error}")
                         total_failed += 1
                     
+                    # Extract posts if requested
+                    if posts:
+                        click.echo(f"  Extracting posts...")
+                        posts_result = await automation.extract_and_save_posts(page_url, max_scrolls=max_scrolls)
+                        click.echo(f"  Found {posts_result.posts_count} posts")
+                        if output:
+                            _save_posts_to_file(posts_result, output)
+                    
                     await asyncio.sleep(2)
             
             # Mode 3: Update by URL
@@ -635,6 +732,14 @@ def facebook_page(
                 else:
                     click.echo(f"✗ Failed: {result.error}")
                     total_failed += 1
+                
+                # Extract posts if requested
+                if posts:
+                    click.echo(f"Extracting posts...")
+                    posts_result = await automation.extract_and_save_posts(update_url, max_scrolls=max_scrolls)
+                    click.echo(f"Found {posts_result.posts_count} posts")
+                    if output:
+                        _save_posts_to_file(posts_result, output)
             
             # Mode 4: Update by page_id
             elif update_id:
@@ -657,6 +762,14 @@ def facebook_page(
                 else:
                     click.echo(f"✗ Failed: {result.error}")
                     total_failed += 1
+                
+                # Extract posts if requested
+                if posts:
+                    click.echo(f"Extracting posts...")
+                    posts_result = await automation.extract_posts(page_url, max_scrolls=max_scrolls)
+                    click.echo(f"Found {posts_result.posts_count} posts")
+                    if output:
+                        _save_posts_to_file(posts_result, output)
             
             # Mode 5: Update stale pages (default)
             else:
@@ -680,6 +793,14 @@ def facebook_page(
                         click.echo(f"  ✗ Failed: {result.error}")
                         total_failed += 1
                     
+                    # Extract posts if requested
+                    if posts:
+                        click.echo(f"  Extracting posts...")
+                        posts_result = await automation.extract_posts(page_url, max_scrolls=max_scrolls)
+                        click.echo(f"  Found {posts_result.posts_count} posts")
+                        if output:
+                            _save_posts_to_file(posts_result, output)
+                    
                     await asyncio.sleep(2)
 
             # Summary
@@ -693,6 +814,13 @@ def facebook_page(
             click.echo(f"Error: {e}", err=True)
             logger.exception("Automation failed")
         finally:
+            # Stop network capture
+            if 'automation' in locals() and hasattr(automation, 'capture_service'):
+                await automation.stop_capture()
+            if 'capture_service' in locals() and capture_service:
+                await capture_service.stop()
+            if 'interceptor' in locals() and interceptor:
+                await interceptor.stop()
             if storage_client:
                 await storage_client.close()
             await session_mgr.stop()

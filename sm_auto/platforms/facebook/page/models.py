@@ -282,3 +282,223 @@ class PageUpdateResult(BaseModel):
         default_factory=datetime.utcnow,
         description="When update was attempted",
     )
+
+
+class FacebookPost(BaseModel):
+    """Represents a Facebook Page post/timeline entry."""
+
+    # === Core Identifiers ===
+    post_id: str = Field(
+        ...,
+        description="Unique post ID",
+    )
+    node_id: Optional[str] = Field(
+        default=None,
+        description="Base64 encoded node ID",
+    )
+    feedback_id: Optional[str] = Field(
+        default=None,
+        description="Feedback ID",
+    )
+    page_id: str = Field(
+        ...,
+        description="Parent page ID",
+    )
+    page_name: Optional[str] = Field(
+        default=None,
+        description="Page display name",
+    )
+    page_url: Optional[str] = Field(
+        default=None,
+        description="Page URL",
+    )
+
+    # === URLs ===
+    post_url: Optional[str] = Field(
+        default=None,
+        description="Permalink to the post",
+    )
+
+    # === Content ===
+    text: Optional[str] = Field(
+        default=None,
+        description="Full post text content",
+    )
+    text_preview: Optional[str] = Field(
+        default=None,
+        description="Preview of post text (first 500 chars)",
+    )
+    is_text_only: bool = Field(
+        default=False,
+        description="True if post has no attachments",
+    )
+
+    # === Content Metadata (mentions, hashtags, links) ===
+    mentions: Optional[List[Dict[str, Any]]] = Field(
+        default=None,
+        description="List of @mentions with {name, id, url}",
+    )
+    hashtags: Optional[List[str]] = Field(
+        default=None,
+        description="List of hashtags found in post",
+    )
+    external_links: Optional[List[Dict[str, str]]] = Field(
+        default=None,
+        description="External links with {url, display_url}",
+    )
+
+    # === Timestamps ===
+    created_at_timestamp: Optional[int] = Field(
+        default=None,
+        description="Post creation Unix timestamp",
+    )
+    created_at: Optional[datetime] = Field(
+        default=None,
+        description="Post creation datetime",
+    )
+
+    # === Engagement: Reactions (Full Breakdown) ===
+    reaction_count: Optional[int] = Field(
+        default=None,
+        description="Total reaction count",
+    )
+    reactions: Optional[Dict[str, int]] = Field(
+        default=None,
+        description="Reaction breakdown (e.g., {'like': 100, 'love': 50})",
+    )
+    # Individual reaction counts
+    reactions_like: Optional[int] = Field(
+        default=None,
+        description="Number of Like reactions",
+    )
+    reactions_love: Optional[int] = Field(
+        default=None,
+        description="Number of Love reactions",
+    )
+    reactions_haha: Optional[int] = Field(
+        default=None,
+        description="Number of HaHa reactions",
+    )
+    reactions_wow: Optional[int] = Field(
+        default=None,
+        description="Number of Wow reactions",
+    )
+    reactions_sad: Optional[int] = Field(
+        default=None,
+        description="Number of Sad reactions",
+    )
+    reactions_angry: Optional[int] = Field(
+        default=None,
+        description="Number of Angry reactions",
+    )
+    reactions_care: Optional[int] = Field(
+        default=None,
+        description="Number of Care reactions",
+    )
+
+    # === Engagement: Comments ===
+    comment_count: Optional[int] = Field(
+        default=None,
+        description="Total comment count",
+    )
+
+    # === Engagement: Shares ===
+    share_count: Optional[int] = Field(
+        default=None,
+        description="Total share count",
+    )
+
+    # === Media ===
+    media_type: Optional[str] = Field(
+        default=None,
+        description="Primary media type: video, image, link, text",
+    )
+    media_ids: Optional[List[str]] = Field(
+        default=None,
+        description="List of media IDs",
+    )
+    media_urls: Optional[List[str]] = Field(
+        default=None,
+        description="List of media URLs (images, videos)",
+    )
+    thumbnail_urls: Optional[List[str]] = Field(
+        default=None,
+        description="List of thumbnail URLs",
+    )
+
+    # === Video Specific ===
+    video_duration_sec: Optional[int] = Field(
+        default=None,
+        description="Video duration in seconds",
+    )
+    video_height: Optional[int] = Field(
+        default=None,
+        description="Video height",
+    )
+    video_width: Optional[int] = Field(
+        default=None,
+        description="Video width",
+    )
+    is_live: bool = Field(
+        default=False,
+        description="Is live stream",
+    )
+    is_reel: bool = Field(
+        default=False,
+        description="Is reel/short video",
+    )
+    is_looping: bool = Field(
+        default=False,
+        description="Is looping video",
+    )
+
+    # === Post Classification ===
+    post_type: Optional[str] = Field(
+        default=None,
+        description="Post type: video_inline, photo, link, text",
+    )
+    can_comment: bool = Field(
+        default=True,
+        description="Can viewer comment",
+    )
+
+    # === Additional Metadata ===
+    cache_id: Optional[str] = Field(
+        default=None,
+        description="Cache ID from Facebook",
+    )
+    is_sponsored: bool = Field(
+        default=False,
+        description="Is sponsored content",
+    )
+    is_hidden: bool = Field(
+        default=False,
+        description="Is hidden post",
+    )
+    recorded_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="When this post was scraped",
+    )
+
+
+class PostExtractionResult(BaseModel):
+    """Result from extracting posts from a page."""
+
+    page_id: str = Field(..., description="Page ID")
+    page_url: str = Field(..., description="Page URL")
+    posts: List[FacebookPost] = Field(
+        default_factory=list,
+        description="Extracted posts",
+    )
+    posts_count: int = Field(
+        default=0,
+        description="Number of posts extracted",
+    )
+    extraction_method: str = Field(
+        default="graphql",
+        description="Method used for extraction",
+    )
+    extracted_at: datetime = Field(
+        default_factory=datetime.utcnow,
+        description="When extraction occurred",
+    )

@@ -68,7 +68,10 @@ class CDPInterceptor:
             True if URL should be captured.
         """
         url_lower = url.lower()
-        return any(pattern in url_lower for pattern in self.url_filters)
+        should_capture = any(pattern in url_lower for pattern in self.url_filters)
+        if should_capture:
+            print(f"[CDP] Capturing URL: {url[:150]}")
+        return should_capture
 
     def _should_ignore_mime(self, mime_type: str) -> bool:
         """

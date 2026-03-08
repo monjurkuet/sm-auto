@@ -45,6 +45,7 @@ platforms:
   facebook:
     base_url: "https://www.facebook.com"
     login_timeout: 120
+    max_scrolls: 3
   instagram:
     base_url: "https://www.instagram.com"
     login_timeout: 120

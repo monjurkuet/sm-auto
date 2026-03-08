@@ -14,11 +14,19 @@ from typing import Optional, List, Dict, Any
 from sm_auto.platforms.base.platform_base import PlatformBase, PlatformConfig
 from sm_auto.platforms.base.automation_base import AutomationBase, AutomationState
 from sm_auto.platforms.facebook.page.extractor import FacebookPageExtractor
+from sm_auto.platforms.facebook.page.extractor import (
+    extract_metrics_from_aria,
+    extract_from_graphql,
+    merge_extraction_results,
+    extract_posts_from_graphql,
+)
 from sm_auto.platforms.facebook.page.models import (
     PageExtractionResult,
     PageUpdateResult,
     FacebookPage,
     FacebookPageMetric,
+    FacebookPost,
+    PostExtractionResult,
 )
 from sm_auto.platforms.facebook.page.storage import FacebookPageStorage
 from sm_auto.core.network.capture_service import CaptureService
@@ -87,13 +95,20 @@ class FacebookPagePlatform(PlatformBase):
             config: Optional FacebookPageConfig instance.
         """
         self._config = config or FacebookPageConfig()
+        self._captured_graphql: List[Dict[str, Any]] = []
+        self.capture_service = None  # Can be set externally if needed
         super().__init__(session_manager, self._config)
-        self.extractor = FacebookPageExtractor(debug_mode=self._config.save_debug_html)
+        self.extractor = FacebookPageExtractor(enable_debug=self._config.save_debug_html)
 
     @property
     def config(self) -> FacebookPageConfig:
         """Get the config."""
         return self._config
+
+    @config.setter
+    def config(self, value: FacebookPageConfig):
+        """Set the config."""
+        self._config = value
 
     async def initialize(self) -> None:
         """Initialize the platform."""
@@ -332,6 +347,69 @@ class FacebookPageAutomation(AutomationBase):
         self._captured_graphql: List[Dict[str, Any]] = []
         self._current_page_url: Optional[str] = None
 
+    # === GraphQL Capture Methods ===
+    
+    def clear_captured_graphql(self) -> None:
+        """Clear captured GraphQL responses."""
+        self._captured_graphql = []
+
+    def get_captured_graphql(self) -> List[Dict[str, Any]]:
+        """Get captured GraphQL responses."""
+        return self._captured_graphql.copy()
+
+    async def start_capture(self) -> None:
+        """Start network capture for GraphQL data extraction."""
+        if self.capture_service is None:
+            logger.warning("No capture service available - network capture disabled")
+            return
+        
+        # Register parser callback for GraphQL
+        self.capture_service.register_parser(
+            "graphql",
+            self._process_capture_event,
+        )
+        
+        logger.info("Started network capture for Facebook Page")
+
+    async def stop_capture(self) -> None:
+        """Stop network capture."""
+        if self.capture_service is None:
+            return
+
+        self.capture_service.unregister_parser(
+            "graphql",
+            self._process_capture_event,
+        )
+
+        logger.info("Stopped network capture for Facebook Page")
+
+    async def _process_capture_event(self, event: NetworkCaptureEvent) -> None:
+        """Process captured GraphQL response event."""
+        try:
+            # Extract response data
+            response_text = ""
+            if hasattr(event, 'response'):
+                response_text = event.response.get('text', '') if isinstance(event.response, dict) else ''
+            elif hasattr(event, 'body'):
+                response_text = event.body
+                
+            if not response_text:
+                return
+                
+            # Parse JSON responses (Facebook sends newline-separated JSON)
+            for line in response_text.split('\n'):
+                if line.strip():
+                    try:
+                        data = json.loads(line)
+                        self._captured_graphql.append(data)
+                    except json.JSONDecodeError:
+                        pass
+                        
+            logger.debug(f"Captured GraphQL response, total: {len(self._captured_graphql)}")
+            
+        except Exception as e:
+            logger.debug(f"Error processing capture event: {e}")
+
     async def extract_page(self, page_url: str) -> PageExtractionResult:
         """
         Extract data from a Facebook page using network interception.
@@ -496,17 +574,47 @@ class FacebookPageAutomation(AutomationBase):
                 result = self.extractor.extract_from_html(html, page_url)
                 
                 # 2. Second: Extract metrics from ARIA labels (new method)
-                aria_metrics = self.extractor.extract_metrics_from_aria(html)
+                aria_metrics = extract_metrics_from_aria(html)
                 
                 # 3. Third: Extract from captured GraphQL responses
-                graphql_data = self.extractor.extract_from_graphql(
+                graphql_data = extract_from_graphql(
                     self.get_captured_graphql()
                 )
                 
+                # Log GraphQL capture stats
+                captured = self.get_captured_graphql()
+                captured_count = len(captured)
+                logger.info(f"Captured {captured_count} GraphQL responses")
+                
+                # Debug: Save GraphQL responses to file for inspection
+                if captured and captured_count > 0:
+                    import json
+                    from pathlib import Path
+                    debug_dir = Path("/root/codebase/sm-auto/debug_graphql")
+                    debug_dir.mkdir(exist_ok=True)
+                    # Save ALL responses for inspection
+                    with open(debug_dir / f"graphql_all_{len(list(debug_dir.glob('graphql_all_*')))}.json", "w") as f:
+                        json.dump(captured, f, indent=2, default=str)
+                    logger.info(f"Saved {captured_count} GraphQL responses to debug_graphql/")
+                    
+                    # Log structure info
+                    first_response = captured[0]
+                    logger.info(f"First GraphQL response keys: {list(first_response.keys())}")
+                    if 'data' in first_response:
+                        data = first_response['data']
+                        logger.info(f"First GraphQL data keys: {list(data.keys()) if isinstance(data, dict) else type(data)}")
+                
+                graphql_data = extract_from_graphql(captured)
+                
+                logger.info(f"GraphQL extracted data: page_id={graphql_data.get('page_id')}, page_name={graphql_data.get('page_name')}, likes={graphql_data.get('likes')}, followers={graphql_data.get('followers')}")
+                logger.info(f"ARIA extracted data: {aria_metrics}")
+                
                 # Merge all results with proper priority
-                result = self.extractor.merge_extraction_results(
+                result = merge_extraction_results(
                     result, aria_metrics, graphql_data
                 )
+                
+                logger.info(f"Final merged result: page_name={result.page_name}, likes={result.likes}, followers={result.followers}")
 
                 # Always try JavaScript DOM extraction to get likes/followers
                 logger.info("Trying JavaScript DOM extraction for likes/followers...")
@@ -839,6 +947,110 @@ class FacebookPageAutomation(AutomationBase):
         )
         
         return main_result
+
+    async def extract_posts(self, page_url: str, max_scrolls: int = 10) -> PostExtractionResult:
+        """
+        Extract posts from a Facebook page's timeline.
+        
+        This method navigates to the page, scrolls to load timeline posts,
+        and extracts post data from intercepted GraphQL responses.
+        
+        Args:
+            page_url: URL of the Facebook page.
+            max_scrolls: Maximum scroll iterations to load more posts.
+            
+        Returns:
+            PostExtractionResult with extracted posts.
+        """
+        logger.info(f"Extracting posts from: {page_url}")
+        
+        # First, get page info to know the page_id
+        page_result = await self.extract_page(page_url)
+        page_id = page_result.page_id or page_result.username or "unknown"
+        
+        # Clear previous GraphQL captures
+        self.clear_captured_graphql()
+        
+        # Start network capture
+        await self.start_capture()
+        
+        # Navigate to page
+        success = await self.page_platform.navigate_to_page(page_url)
+        if not success:
+            await self.stop_capture()
+            return PostExtractionResult(
+                page_id=page_id,
+                page_url=page_url,
+            )
+        
+        # Wait for page to load
+        await page_delay()
+        
+        # Scroll to load posts
+        await self._scroll_page(max_scrolls)
+        
+        # Wait for more GraphQL responses after scrolling
+        await action_delay()
+        
+        # Stop capture and extract posts
+        await self.stop_capture()
+        
+        # Extract posts from captured GraphQL
+        posts_result = extract_posts_from_graphql(
+            self.get_captured_graphql(),
+            page_id=page_id,
+            page_url=page_url,
+        )
+        
+        logger.info(f"Extracted {posts_result.posts_count} posts from {page_url}")
+        return posts_result
+
+    async def extract_and_save_posts(
+        self,
+        page_url: str,
+        max_scrolls: int = 10,
+    ) -> PostExtractionResult:
+        """
+        Extract posts from a Facebook page and save to storage.
+        
+        This method extracts posts and persists them to MongoDB.
+        
+        Args:
+            page_url: URL of the Facebook page.
+            max_scrolls: Maximum scroll iterations to load more posts.
+            
+        Returns:
+            PostExtractionResult with extracted posts.
+        """
+        logger.info(f"Extracting and saving posts from: {page_url}")
+        
+        # Extract posts
+        posts_result = await self.extract_posts(page_url, max_scrolls)
+        
+        if not posts_result.posts:
+            logger.warning(f"No posts found for {page_url}")
+            return posts_result
+        
+        # Save to storage if available
+        if self.storage:
+            try:
+                # Convert posts to dictionaries
+                posts_data = []
+                for post in posts_result.posts:
+                    post_dict = post.model_dump(exclude={'recorded_at'})
+                    post_dict['page_url'] = page_url
+                    posts_data.append(post_dict)
+                
+                # Bulk insert posts
+                inserted = await self.storage.insert_posts_bulk(posts_data)
+                logger.info(f"Saved {inserted} posts to storage for {page_url}")
+                
+            except Exception as e:
+                logger.error(f"Error saving posts to storage: {e}")
+        else:
+            logger.warning("No storage configured, posts not saved")
+        
+        return posts_result
 
     async def update_page(self, page_url: str) -> PageUpdateResult:
         """

@@ -98,6 +98,7 @@ class PlatformConfig(BaseModel):
 
     base_url: str
     login_timeout: int = Field(default=120, description="Login timeout in seconds")
+    max_scrolls: int = Field(default=15, description="Maximum scroll iterations for lazy loading")
 
 
 class PlatformsConfig(BaseModel):
@@ -105,7 +106,7 @@ class PlatformsConfig(BaseModel):
 
     facebook: PlatformConfig = Field(
         default_factory=lambda: PlatformConfig(
-            base_url="https://www.facebook.com", login_timeout=120
+            base_url="https://www.facebook.com", login_timeout=120, max_scrolls=15
         )
     )
     instagram: PlatformConfig = Field(

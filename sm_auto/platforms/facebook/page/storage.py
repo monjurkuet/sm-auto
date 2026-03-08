@@ -24,13 +24,15 @@ class FacebookPageStorage:
     """
     Storage for Facebook page tracking.
 
-    Manages two collections:
+    Manages three collections:
     - facebook_pages: Page metadata
     - facebook_page_metrics: Time-series metrics
+    - facebook_page_posts: Individual posts
     """
 
     PAGES_COLLECTION = "facebook_pages"
     METRICS_COLLECTION = "facebook_page_metrics"
+    POSTS_COLLECTION = "facebook_page_posts"
 
     def __init__(
         self,
@@ -76,9 +78,17 @@ class FacebookPageStorage:
         await metrics.create_index([("page_id", ASCENDING), ("recorded_at", DESCENDING)])
         await metrics.create_index("recorded_at")
 
+        # Create indexes for posts collection
+        posts = self._db[self.POSTS_COLLECTION]
+        await posts.create_index("post_id", unique=True)
+        await posts.create_index("page_id")
+        await posts.create_index([("page_id", ASCENDING), ("recorded_at", DESCENDING)])
+        await posts.create_index("created_at_timestamp")
+        await posts.create_index("recorded_at")
+
         logger.info(
             f"Connected to MongoDB: {self.database_name} "
-            f"(collections: {self.PAGES_COLLECTION}, {self.METRICS_COLLECTION})"
+            f"(collections: {self.PAGES_COLLECTION}, {self.METRICS_COLLECTION}, {self.POSTS_COLLECTION})"
         )
 
     @property
@@ -94,6 +104,13 @@ class FacebookPageStorage:
         if self._db is None:
             raise RuntimeError("Not connected. Call connect() first.")
         return self._db[self.METRICS_COLLECTION]
+
+    @property
+    def posts(self):
+        """Get posts collection."""
+        if self._db is None:
+            raise RuntimeError("Not connected. Call connect() first.")
+        return self._db[self.POSTS_COLLECTION]
 
     # === Page Operations ===
 
@@ -354,6 +371,155 @@ class FacebookPageStorage:
             await self.connect()
 
         return await self.metrics.count_documents({"page_id": page_id})
+
+    # === Post Operations ===
+
+    async def upsert_post(self, post_data: Dict[str, Any]) -> bool:
+        """
+        Insert or update a post.
+
+        Args:
+            post_data: Post data dictionary.
+
+        Returns:
+            True if successful.
+        """
+        if self._db is None:
+            await self.connect()
+
+        post_id = post_data.get("post_id")
+        if not post_id:
+            logger.error("Cannot upsert post without post_id")
+            return False
+
+        post_data["recorded_at"] = datetime.utcnow()
+
+        try:
+            await self.posts.update_one(
+                {"post_id": post_id},
+                {"$set": post_data},
+                upsert=True,
+            )
+            logger.debug(f"Upserted post: {post_id}")
+            return True
+        except Exception as e:
+            logger.error(f"Error upserting post {post_id}: {e}")
+            raise
+
+    async def insert_posts_bulk(self, posts_list: List[Dict[str, Any]]) -> int:
+        """
+        Insert multiple posts efficiently.
+
+        Args:
+            posts_list: List of post data dictionaries.
+
+        Returns:
+            Number of posts inserted.
+        """
+        if self._db is None:
+            await self.connect()
+
+        if not posts_list:
+            return 0
+
+        now = datetime.utcnow()
+        for post in posts_list:
+            post["recorded_at"] = now
+
+        try:
+            result = await self.posts.insert_many(posts_list, ordered=False)
+            logger.debug(f"Inserted {len(result.inserted_ids)} posts")
+            return len(result.inserted_ids)
+        except Exception as e:
+            logger.error(f"Error bulk inserting posts: {e}")
+            raise
+
+    async def get_post_by_id(self, post_id: str) -> Optional[Dict[str, Any]]:
+        """
+        Get a post by post_id.
+
+        Args:
+            post_id: The Facebook post ID.
+
+        Returns:
+            Post document or None.
+        """
+        if self._db is None:
+            await self.connect()
+
+        return await self.posts.find_one({"post_id": post_id})
+
+    async def get_posts_by_page(
+        self,
+        page_id: str,
+        limit: int = 50,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get posts for a page.
+
+        Args:
+            page_id: The page ID.
+            limit: Maximum number of posts to return.
+
+        Returns:
+            List of post documents, newest first.
+        """
+        if self._db is None:
+            await self.connect()
+
+        cursor = self.posts.find(
+            {"page_id": page_id},
+            sort=[("recorded_at", DESCENDING)],
+            limit=limit,
+        )
+        return await cursor.to_list(length=None)
+
+    async def get_posts_in_range(
+        self,
+        page_id: str,
+        start_date: datetime,
+        end_date: datetime,
+    ) -> List[Dict[str, Any]]:
+        """
+        Get posts within a date range.
+
+        Args:
+            page_id: The page ID.
+            start_date: Start of range.
+            end_date: End of range.
+
+        Returns:
+            List of post documents.
+        """
+        if self._db is None:
+            await self.connect()
+
+        cursor = self.posts.find(
+            {
+                "page_id": page_id,
+                "created_at_timestamp": {
+                    "$gte": int(start_date.timestamp()),
+                    "$lte": int(end_date.timestamp()),
+                },
+            },
+            sort=[("created_at_timestamp", DESCENDING)],
+        )
+        return await cursor.to_list(length=None)
+
+    async def get_posts_count(self, page_id: str) -> int:
+        """
+        Get total number of posts for a page.
+
+        Args:
+            page_id: The page ID.
+
+        Returns:
+            Count of posts.
+        """
+        if self._db is None:
+            await self.connect()
+
+        return await self.posts.count_documents({"page_id": page_id})
 
     async def close(self):
         """Close MongoDB connection."""
