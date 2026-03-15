@@ -29,6 +29,22 @@ This package scaffolds a modular Facebook scraper that attaches to an already-ru
 - `src/cli`: Runnable entrypoints
 - `db/migrations`: PostgreSQL schema migrations
 
+## Docs Index
+
+Primary docs:
+- [`README.md`](README.md): project overview, prerequisites, and quick-start commands
+- [`docs/run_scraper.md`](docs/run_scraper.md): step-by-step runbook for starting Chrome, preparing Postgres, and running each scraper CLI
+- [`docs/postgres_storage.md`](docs/postgres_storage.md): Postgres setup, schema intent, and persistence behavior
+- [`docs/architecture.md`](docs/architecture.md): high-level layer breakdown and the transport/parser separation rule
+- [`docs/output_schemas.md`](docs/output_schemas.md): the JSON outputs produced by the scrapers and where their contracts live
+- [`docs/selectors_and_queries.md`](docs/selectors_and_queries.md): known GraphQL query names, route targets, and DOM fallback selectors to track
+- [`docs/marketplace_transport_findings.md`](docs/marketplace_transport_findings.md): Marketplace-specific transport findings around embedded payloads, route definitions, and DOM fallback behavior
+- [`docs/RESUME.md`](docs/RESUME.md): current project state, runtime assumptions, known gaps, and next-work notes
+
+Fixture docs:
+- [`fixtures/dom/README.md`](fixtures/dom/README.md): guidance for storing DOM snapshots or reduced HTML fixtures for parser tests
+- [`fixtures/graphql/README.md`](fixtures/graphql/README.md): guidance for storing sanitized GraphQL fixtures and required redactions
+
 ## Runtime assumption
 Chrome is already running with remote debugging enabled, for example:
 
