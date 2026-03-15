@@ -1,0 +1,45 @@
+{
+  "data": {
+    "marketplace_listing_item": {
+      "id": "listing-9",
+      "marketplace_listing_title": "iPhone 14 Pro",
+      "description": "256GB, excellent condition",
+      "listing_price": {
+        "amount": 120000,
+        "currency_code": "BDT",
+        "formatted_amount": "৳120,000"
+      },
+      "location": {
+        "reverse_geocode": {
+          "city": "Dhaka",
+          "city_page": {
+            "display_name": "Dhaka, Bangladesh"
+          }
+        },
+        "coordinates": {
+          "latitude": 23.8103,
+          "longitude": 90.4125
+        }
+      },
+      "seller": {
+        "id": "seller-9",
+        "name": "Phone Seller"
+      },
+      "media": [
+        {
+          "__typename": "Image",
+          "image": {
+            "uri": "https://example.com/iphone.jpg",
+            "width": 1000,
+            "height": 1000
+          }
+        }
+      ],
+      "marketplace_listing_category_id": "phones",
+      "delivery_types": ["IN_PERSON"],
+      "is_live": true,
+      "is_pending": false,
+      "is_sold": false
+    }
+  }
+}

@@ -1,0 +1,41 @@
+{
+  "data": {
+    "node": {
+      "__typename": "Story",
+      "id": "story-1",
+      "post_id": "post-1",
+      "permalink_url": "https://www.facebook.com/post/1",
+      "creation_time": 1710000000,
+      "message": {
+        "text": "New arrival #launch",
+        "ranges": [
+          {
+            "entity": {
+              "__typename": "Hashtag",
+              "name": "launch"
+            }
+          }
+        ]
+      },
+      "actors": [
+        {
+          "id": "page-1",
+          "name": "Sample Page"
+        }
+      ],
+      "attachments": [
+        {
+          "media": {
+            "__typename": "Photo",
+            "id": "photo-1",
+            "photo_image": {
+              "uri": "https://example.com/photo.jpg",
+              "width": 640,
+              "height": 480
+            }
+          }
+        }
+      ]
+    }
+  }
+}

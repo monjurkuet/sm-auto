@@ -1,0 +1,17 @@
+{
+  "data": {
+    "marketplace_seller_profile": {
+      "id": "seller-1",
+      "name": "Seller One",
+      "about": "Trusted local seller",
+      "created_time": 1700000000,
+      "location": {
+        "name": "Dhaka, Bangladesh"
+      },
+      "rating": {
+        "average_rating": 4.8,
+        "review_count": 37
+      }
+    }
+  }
+}

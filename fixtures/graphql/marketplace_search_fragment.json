@@ -1,0 +1,48 @@
+{
+  "data": {
+    "marketplace_search": {
+      "feed_units": {
+        "edges": [
+          {
+            "node": {
+              "__typename": "MarketplaceFeedListingStoryObject",
+              "listing": {
+                "__typename": "GroupCommerceProductItem",
+                "id": "listing-1",
+                "marketplace_listing_title": "Gaming Laptop",
+                "listing_price": {
+                  "amount": 95000,
+                  "formatted_amount": "৳95,000"
+                },
+                "location": {
+                  "reverse_geocode": {
+                    "city": "Dhaka",
+                    "city_page": {
+                      "display_name": "Dhaka, Bangladesh"
+                    }
+                  }
+                },
+                "marketplace_listing_seller": {
+                  "id": "seller-1",
+                  "name": "Seller One"
+                },
+                "primary_listing_photo": {
+                  "image": {
+                    "uri": "https://example.com/laptop.jpg",
+                    "width": 800,
+                    "height": 600
+                  }
+                },
+                "marketplace_listing_category_id": "cat-1",
+                "delivery_types": ["DELIVERY", "IN_PERSON"],
+                "is_live": true,
+                "is_pending": false,
+                "is_sold": false
+              }
+            }
+          }
+        ]
+      }
+    }
+  }
+}
