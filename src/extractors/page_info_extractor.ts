@@ -1,6 +1,7 @@
 import { ChromeClient } from '../browser/chrome_client';
 import { PageSession } from '../browser/page_session';
 import { GraphQLCapture } from '../capture/graphql_capture';
+import { RouteDefinitionCapture } from '../capture/route_definition_capture';
 import { sleep } from '../core/sleep';
 import { normalizePageInfo } from '../normalizers/page_normalizer';
 import {
@@ -11,7 +12,7 @@ import {
   parseLabeledValue,
   parsePageName
 } from '../parsers/dom/page_dom_parser';
-import { parseTimelineIdentity } from '../parsers/graphql/timeline_parser';
+import { getString } from '../parsers/graphql/shared_graphql_utils';
 import { buildAboutContactUrl } from '../routes/facebook_routes';
 import type { ExtractorResult, PageInfoResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
@@ -25,7 +26,9 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
   try {
     return await session.withPage(async (page) => {
       const capture = new GraphQLCapture();
+      const routeCapture = new RouteDefinitionCapture();
       await capture.attach(page);
+      await routeCapture.attach(page);
 
       await page.goto(pageUrl, { waitUntil: 'networkidle2' });
       await sleep(2_000);
@@ -37,7 +40,29 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       const transparency = await extractPageTransparency(page, pageUrl);
 
       await capture.detach(page);
-      const identity = parseTimelineIdentity(capture.registry.byFriendlyName('ProfileCometTimelineFeedRefetchQuery'));
+      await routeCapture.detach(page);
+
+      // Extract page ID from route definitions (authoritative source)
+      const routes = routeCapture.records.flatMap(record => record.routes);
+      let pageId: string | null = null;
+      let pageName: string | null = null;
+
+      // Get page ID from route definitions - look for profile timeline route
+      for (const route of routes) {
+        if (!route.canonicalRouteName?.includes('ProfileTimeline')) {
+          continue;
+        }
+        const raw = route.raw as Record<string, unknown>;
+        const result = raw?.result as Record<string, unknown> | undefined;
+        const exports = (result?.exports ?? result) as Record<string, unknown>;
+        const rootView = (exports?.rootView ?? exports?.hostableView) as Record<string, unknown> | undefined;
+        const props = (rootView?.props ?? rootView) as Record<string, unknown> | undefined;
+        if (props?.userID) {
+          pageId = getString(props.userID);
+          pageName = getString(props.userVanity) ?? null;
+          break;
+        }
+      }
       const mainContact = parseContactInfoFromDom(mainSnapshot);
       const aboutContact = parseContactInfoFromDom(aboutSnapshot);
       const transparencySnapshot = {
@@ -45,11 +70,15 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
         spans: transparency.history
       };
 
+      if (!pageId) {
+        throw new Error(`Failed to extract page ID for ${pageUrl}. Skipping scrape.`);
+      }
+
       return {
         data: normalizePageInfo({
-          pageId: identity.pageId ?? parseLabeledValue(transparencySnapshot, /^page id$/i),
+          pageId: pageId,
           url: mainSnapshot.url,
-          name: identity.pageName ?? parsePageName(mainSnapshot),
+          name: pageName ?? parsePageName(mainSnapshot),
           category: parseCategory(aboutSnapshot),
           followers: parseFollowerCount(mainSnapshot),
           contact: {
@@ -63,6 +92,7 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
         }),
         artifacts: {
           graphql: capture.registry.all(),
+          route_definitions: routes,
           main_snapshot: mainSnapshot,
           about_snapshot: aboutSnapshot,
           transparency
