@@ -23,11 +23,18 @@ export interface GraphQLFragment {
   fragments: unknown[];
 }
 
+export interface SocialMediaLink {
+  platform: 'instagram' | 'tiktok' | 'tumblr' | 'pinterest' | 'youtube' | 'x';
+  handle: string;
+  url: string;
+}
+
 export interface PageContactInfo {
   phones: string[];
   emails: string[];
   websites: string[];
   addresses: string[];
+  socialMedia: SocialMediaLink[];
 }
 
 export interface PageInfoResult {
@@ -36,6 +43,9 @@ export interface PageInfoResult {
   name: string | null;
   category: string | null;
   followers: number | null;
+  following: number | null;
+  bio: string | null;
+  location: string | null;
   contact: PageContactInfo;
   transparency: {
     creationDate: string | null;

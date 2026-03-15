@@ -6,6 +6,9 @@ export interface PageInfoInput {
   name: string | null;
   category: string | null;
   followers: number | null;
+  following: number | null;
+  bio: string | null;
+  location: string | null;
   contact: PageContactInfo;
   creationDate: string | null;
   history: string[];
@@ -18,7 +21,13 @@ export function normalizePageInfo(input: PageInfoInput): PageInfoResult {
     name: input.name,
     category: input.category,
     followers: input.followers,
-    contact: input.contact,
+    following: input.following ?? null,
+    bio: input.bio ?? null,
+    location: input.location ?? null,
+    contact: {
+      ...input.contact,
+      socialMedia: input.contact.socialMedia ?? []
+    },
     transparency: {
       creationDate: input.creationDate,
       history: [...new Set(input.history)]

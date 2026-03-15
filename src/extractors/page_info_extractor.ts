@@ -9,6 +9,9 @@ import {
   parseCategory,
   parseContactInfoFromDom,
   parseFollowerCount,
+  parseFollowingCount,
+  parseBio,
+  parseLocation,
   parseLabeledValue,
   parsePageName
 } from '../parsers/dom/page_dom_parser';
@@ -37,6 +40,31 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       await page.goto(buildAboutContactUrl(pageUrl), { waitUntil: 'networkidle2' });
       await sleep(2_000);
       const aboutSnapshot = await snapshotPageDom(page);
+
+      // Navigate to directory_contact_info for additional contact info (phone, email, social)
+      const contactUrl = `${pageUrl.replace(/\/$/, '')}/directory_contact_info`;
+      await page.goto(contactUrl, { waitUntil: 'networkidle2' });
+      await sleep(2_000);
+      const contactSnapshot = await snapshotPageDom(page);
+
+      // Navigate to directory_basic_info for page details (including creation date)
+      const basicInfoUrl = `${pageUrl.replace(/\/$/, '')}/directory_basic_info`;
+      await page.goto(basicInfoUrl, { waitUntil: 'networkidle2' });
+      await sleep(2_000);
+      
+      // Try to click on "Privacy and legal info" to expand it
+      try {
+        const privacyLink = await page.$('a[href*="privacy"]');
+        if (privacyLink) {
+          await privacyLink.click();
+          await sleep(1_000);
+        }
+      } catch {
+        // Ignore click errors
+      }
+      
+      const basicInfoSnapshot = await snapshotPageDom(page);
+
       const transparency = await extractPageTransparency(page, pageUrl);
 
       await capture.detach(page);
@@ -65,6 +93,24 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       }
       const mainContact = parseContactInfoFromDom(mainSnapshot);
       const aboutContact = parseContactInfoFromDom(aboutSnapshot);
+      const contactPageContact = parseContactInfoFromDom(contactSnapshot);
+      const basicInfoContact = parseContactInfoFromDom(basicInfoSnapshot);
+
+      // Merge contact info from all pages
+      const mergedContact = {
+        phones: [...new Set([...mainContact.phones, ...aboutContact.phones, ...contactPageContact.phones, ...basicInfoContact.phones])],
+        emails: [...new Set([...mainContact.emails, ...aboutContact.emails, ...contactPageContact.emails, ...basicInfoContact.emails])],
+        websites: [...new Set([...mainContact.websites, ...aboutContact.websites, ...contactPageContact.websites, ...basicInfoContact.websites])],
+        addresses: [...new Set([...mainContact.addresses, ...aboutContact.addresses, ...contactPageContact.addresses, ...basicInfoContact.addresses])],
+        socialMedia: [...contactPageContact.socialMedia] // Contact page has the most social media info
+      };
+
+      // Try to get creation date from basic info page
+      let creationDate = parseLabeledValue(basicInfoSnapshot, /^page created$/i) 
+        ?? parseLabeledValue(basicInfoSnapshot, /^created$/i)
+        ?? parseLabeledValue(basicInfoSnapshot, /^creation date$/i)
+        ?? transparency.creationDate;
+
       const transparencySnapshot = {
         ...mainSnapshot,
         spans: transparency.history
@@ -81,13 +127,11 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
           name: pageName ?? parsePageName(mainSnapshot),
           category: parseCategory(aboutSnapshot),
           followers: parseFollowerCount(mainSnapshot),
-          contact: {
-            phones: [...new Set([...mainContact.phones, ...aboutContact.phones])],
-            emails: [...new Set([...mainContact.emails, ...aboutContact.emails])],
-            websites: [...new Set([...mainContact.websites, ...aboutContact.websites])],
-            addresses: [...new Set([...mainContact.addresses, ...aboutContact.addresses])]
-          },
-          creationDate: parseLabeledValue(transparencySnapshot, /^creation date$/i) ?? transparency.creationDate,
+          following: parseFollowingCount(mainSnapshot),
+          bio: parseBio(aboutSnapshot),
+          location: parseLocation(aboutSnapshot),
+          contact: mergedContact,
+          creationDate: creationDate,
           history: transparency.history
         }),
         artifacts: {
@@ -95,6 +139,8 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
           route_definitions: routes,
           main_snapshot: mainSnapshot,
           about_snapshot: aboutSnapshot,
+          contact_snapshot: contactSnapshot,
+          basic_info_snapshot: basicInfoSnapshot,
           transparency
         }
       };
