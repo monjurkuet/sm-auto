@@ -26,3 +26,11 @@ coverage/
 
 # Local notes
 chrome.txt
+.kilocode
+.claude
+.qwen
+.cursor
+.gemini
+.agent
+.agent/
+.agent/
