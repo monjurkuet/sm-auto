@@ -9,3 +9,11 @@ export function buildAboutContactUrl(pageUrl: string): string {
 export function buildTransparencyUrl(pageUrl: string): string {
   return `${normalizeFacebookPageUrl(pageUrl)}/about_profile_transparency`;
 }
+
+export function buildDirectoryContactUrl(pageUrl: string): string {
+  return `${normalizeFacebookPageUrl(pageUrl)}/directory_contact_info`;
+}
+
+export function buildDirectoryBasicInfoUrl(pageUrl: string): string {
+  return `${normalizeFacebookPageUrl(pageUrl)}/directory_basic_info`;
+}

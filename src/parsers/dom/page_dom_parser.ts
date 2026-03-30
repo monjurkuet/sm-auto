@@ -127,23 +127,23 @@ export function parseSocialMedia(snapshot: PageDomSnapshot): SocialMediaLink[] {
 
   for (const link of snapshot.links) {
     if (!link.href) continue;
-    
+
     let platform: SocialMediaLink['platform'] | null = null;
-    
+
     if (link.href.includes('instagram.com')) platform = 'instagram';
     else if (link.href.includes('tiktok.com')) platform = 'tiktok';
     else if (link.href.includes('tumblr.com')) platform = 'tumblr';
     else if (link.href.includes('pinterest.com')) platform = 'pinterest';
     else if (link.href.includes('youtube.com')) platform = 'youtube';
     else if (link.href.includes('x.com') || link.href.includes('twitter.com')) platform = 'x';
-    
+
     if (platform && !seen.has(platform)) {
       const handle = extractHandleFromUrl(link.href);
       socialMedia.push({ platform, handle, url: link.href });
       seen.add(platform);
     }
   }
-  
+
   return socialMedia;
 }
 
@@ -190,11 +190,11 @@ export function parseBio(snapshot: PageDomSnapshot): string | null {
     if (/^(followers|following|likes|people|talking about|www\.|http)/i.test(span)) continue;
     if (/^\d+[\s,]*(followers|following|likes|people)/i.test(span)) continue;
     if (/^\d+K$/.test(span)) continue;
-    
+
     // Skip transparency UI messages
     if (span.includes("The number of followers includes")) continue;
     if (span.includes("You'll see names")) continue;
-    
+
     // Test against patterns
     for (const pattern of bioPatterns) {
       if (pattern.test(span)) {
@@ -221,7 +221,7 @@ export function parseLocation(snapshot: PageDomSnapshot): string | null {
       }
     }
   }
-  
+
   // Alternative: look for Dhaka, Bangladesh patterns
   for (const span of snapshot.spans) {
     if (/^(dhaka|chittagong|bangladesh)$/i.test(span) || /Bangladesh,?\s*Bangladesh/i.test(span)) {
@@ -233,7 +233,7 @@ export function parseLocation(snapshot: PageDomSnapshot): string | null {
       return span;
     }
   }
-  
+
   return null;
 }
 

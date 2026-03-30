@@ -5,7 +5,6 @@ import { RouteDefinitionCapture } from '../capture/route_definition_capture';
 import { sleep } from '../core/sleep';
 import { normalizePageInfo } from '../normalizers/page_normalizer';
 import {
-  snapshotPageDom,
   parseCategory,
   parseContactInfoFromDom,
   parseFollowerCount,
@@ -13,10 +12,16 @@ import {
   parseBio,
   parseLocation,
   parseLabeledValue,
+  snapshotPageDom,
   parsePageName
 } from '../parsers/dom/page_dom_parser';
+import {
+  captureEmbeddedProfileData,
+  extractLocationFromEmbeddedData,
+  extractProfileTileItems
+} from '../parsers/dom/embedded_dom_parser';
 import { getString } from '../parsers/graphql/shared_graphql_utils';
-import { buildAboutContactUrl } from '../routes/facebook_routes';
+import { buildDirectoryContactUrl, buildDirectoryBasicInfoUrl } from '../routes/facebook_routes';
 import type { ExtractorResult, PageInfoResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
 import { extractPageTransparency } from './page_transparency_extractor';
@@ -37,21 +42,23 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       await sleep(2_000);
 
       const mainSnapshot = await snapshotPageDom(page);
-      await page.goto(buildAboutContactUrl(pageUrl), { waitUntil: 'networkidle2' });
-      await sleep(2_000);
-      const aboutSnapshot = await snapshotPageDom(page);
+
+      // Capture embedded profile data for location extraction
+      const embeddedProfileData = await captureEmbeddedProfileData(page);
+      const profileTileItems = extractProfileTileItems(embeddedProfileData);
+      const embeddedLocation = extractLocationFromEmbeddedData(profileTileItems);
 
       // Navigate to directory_contact_info for additional contact info (phone, email, social)
-      const contactUrl = `${pageUrl.replace(/\/$/, '')}/directory_contact_info`;
+      const contactUrl = buildDirectoryContactUrl(pageUrl);
       await page.goto(contactUrl, { waitUntil: 'networkidle2' });
       await sleep(2_000);
       const contactSnapshot = await snapshotPageDom(page);
 
       // Navigate to directory_basic_info for page details (including creation date)
-      const basicInfoUrl = `${pageUrl.replace(/\/$/, '')}/directory_basic_info`;
+      const basicInfoUrl = buildDirectoryBasicInfoUrl(pageUrl);
       await page.goto(basicInfoUrl, { waitUntil: 'networkidle2' });
       await sleep(2_000);
-      
+
       // Try to click on "Privacy and legal info" to expand it
       try {
         const privacyLink = await page.$('a[href*="privacy"]');
@@ -62,10 +69,15 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       } catch {
         // Ignore click errors
       }
-      
+
       const basicInfoSnapshot = await snapshotPageDom(page);
 
-      const transparency = await extractPageTransparency(page, pageUrl);
+      // Note: Transparency page (/about_profile_transparency) provides no useful data
+      // It just redirects to main page. History data comes from other sources.
+      const transparency = {
+        creationDate: null,
+        history: []
+      };
 
       await capture.detach(page);
       await routeCapture.detach(page);
@@ -92,21 +104,24 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
         }
       }
       const mainContact = parseContactInfoFromDom(mainSnapshot);
-      const aboutContact = parseContactInfoFromDom(aboutSnapshot);
       const contactPageContact = parseContactInfoFromDom(contactSnapshot);
       const basicInfoContact = parseContactInfoFromDom(basicInfoSnapshot);
 
       // Merge contact info from all pages
       const mergedContact = {
-        phones: [...new Set([...mainContact.phones, ...aboutContact.phones, ...contactPageContact.phones, ...basicInfoContact.phones])],
-        emails: [...new Set([...mainContact.emails, ...aboutContact.emails, ...contactPageContact.emails, ...basicInfoContact.emails])],
-        websites: [...new Set([...mainContact.websites, ...aboutContact.websites, ...contactPageContact.websites, ...basicInfoContact.websites])],
-        addresses: [...new Set([...mainContact.addresses, ...aboutContact.addresses, ...contactPageContact.addresses, ...basicInfoContact.addresses])],
+        phones: [...new Set([...mainContact.phones, ...contactPageContact.phones, ...basicInfoContact.phones])],
+        emails: [...new Set([...mainContact.emails, ...contactPageContact.emails, ...basicInfoContact.emails])],
+        websites: [...new Set([...mainContact.websites, ...contactPageContact.websites, ...basicInfoContact.websites])],
+        addresses: [...new Set([...mainContact.addresses, ...contactPageContact.addresses, ...basicInfoContact.addresses])],
         socialMedia: [...contactPageContact.socialMedia] // Contact page has the most social media info
       };
 
+      // Location from embedded data (primary) or fallback to DOM on basic info page
+      const basicInfoLocation = parseLocation(basicInfoSnapshot);
+      const location = embeddedLocation ?? basicInfoLocation;
+
       // Try to get creation date from basic info page
-      let creationDate = parseLabeledValue(basicInfoSnapshot, /^page created$/i) 
+      let creationDate = parseLabeledValue(basicInfoSnapshot, /^page created$/i)
         ?? parseLabeledValue(basicInfoSnapshot, /^created$/i)
         ?? parseLabeledValue(basicInfoSnapshot, /^creation date$/i)
         ?? transparency.creationDate;
@@ -125,11 +140,11 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
           pageId: pageId,
           url: mainSnapshot.url,
           name: pageName ?? parsePageName(mainSnapshot),
-          category: parseCategory(aboutSnapshot),
+          category: parseCategory(mainSnapshot), // Same as /about_contact_and_basic_info but saves a page visit
           followers: parseFollowerCount(mainSnapshot),
           following: parseFollowingCount(mainSnapshot),
-          bio: parseBio(aboutSnapshot),
-          location: parseLocation(aboutSnapshot),
+          bio: parseBio(mainSnapshot), // Try main page for bio
+          location: location,
           contact: mergedContact,
           creationDate: creationDate,
           history: transparency.history
@@ -138,7 +153,6 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
           graphql: capture.registry.all(),
           route_definitions: routes,
           main_snapshot: mainSnapshot,
-          about_snapshot: aboutSnapshot,
           contact_snapshot: contactSnapshot,
           basic_info_snapshot: basicInfoSnapshot,
           transparency
