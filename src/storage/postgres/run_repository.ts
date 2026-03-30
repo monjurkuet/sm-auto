@@ -4,8 +4,8 @@ import type { ScrapeRunCompletion, ScrapeRunStartInput } from './persistence_con
 import { toJsonb } from './persistence_utils';
 
 export async function startScrapeRun(client: PoolClient, input: ScrapeRunStartInput): Promise<string> {
-    const inserted = await client.query<{ id: string }>(
-        `
+  const inserted = await client.query<{ id: string }>(
+    `
       INSERT INTO scraper.scrape_runs (
         surface,
         status,
@@ -16,15 +16,25 @@ export async function startScrapeRun(client: PoolClient, input: ScrapeRunStartIn
       ) VALUES ($1, 'running', $2, $3, $4, $5)
       RETURNING id
     `,
-        [input.surface, input.entityExternalId ?? null, input.sourceUrl ?? null, input.schemaVersion, toJsonb(input.inputPayload)]
-    );
+    [
+      input.surface,
+      input.entityExternalId ?? null,
+      input.sourceUrl ?? null,
+      input.schemaVersion,
+      toJsonb(input.inputPayload)
+    ]
+  );
 
-    return inserted.rows[0].id;
+  return inserted.rows[0].id;
 }
 
-export async function completeScrapeRun(client: PoolClient, scrapeRunId: string, completion: ScrapeRunCompletion): Promise<void> {
-    await client.query(
-        `
+export async function completeScrapeRun(
+  client: PoolClient,
+  scrapeRunId: string,
+  completion: ScrapeRunCompletion
+): Promise<void> {
+  await client.query(
+    `
       UPDATE scraper.scrape_runs
       SET
         status = 'completed',
@@ -34,13 +44,13 @@ export async function completeScrapeRun(client: PoolClient, scrapeRunId: string,
         completed_at = now()
       WHERE id = $1
     `,
-        [scrapeRunId, completion.entityExternalId ?? null, completion.sourceUrl ?? null, toJsonb(completion.outputSummary)]
-    );
+    [scrapeRunId, completion.entityExternalId ?? null, completion.sourceUrl ?? null, toJsonb(completion.outputSummary)]
+  );
 }
 
 export async function failScrapeRun(client: PoolClient, scrapeRunId: string, errorMessage: string): Promise<void> {
-    await client.query(
-        `
+  await client.query(
+    `
       UPDATE scraper.scrape_runs
       SET
         status = 'failed',
@@ -48,6 +58,6 @@ export async function failScrapeRun(client: PoolClient, scrapeRunId: string, err
         completed_at = now()
       WHERE id = $1
     `,
-        [scrapeRunId, errorMessage]
-    );
+    [scrapeRunId, errorMessage]
+  );
 }

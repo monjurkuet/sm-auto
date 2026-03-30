@@ -61,7 +61,11 @@ function parseHijackedJson(body: string): unknown | null {
   return parseJsonString(body.replace(/^for\s*\(;;\);\s*/, ''));
 }
 
-function collectMatchingNodes(value: unknown, predicate: (node: Record<string, unknown>) => boolean, results: Record<string, unknown>[]): void {
+function collectMatchingNodes(
+  value: unknown,
+  predicate: (node: Record<string, unknown>) => boolean,
+  results: Record<string, unknown>[]
+): void {
   if (!value || typeof value !== 'object') {
     return;
   }
@@ -129,7 +133,11 @@ export function extractScheduledServerJsJsonPayloads(html: string): unknown[] {
   return payloads;
 }
 
-export function createEmbeddedDocumentFragment(url: string, html: string, request: RequestMetadata = { rawFields: {} }): GraphQLFragment | null {
+export function createEmbeddedDocumentFragment(
+  url: string,
+  html: string,
+  request: RequestMetadata = { rawFields: {} }
+): GraphQLFragment | null {
   const results = extractScheduledServerJsResults(html);
   if (results.length === 0) {
     return null;
@@ -191,7 +199,9 @@ export function selectRouteLocation(
   definitions: MarketplaceRouteDefinition[],
   routeNamePattern: RegExp
 ): MarketplaceRouteLocation | null {
-  const matches = definitions.filter((definition) => definition.location && routeNamePattern.test(definition.canonicalRouteName ?? ''));
+  const matches = definitions.filter(
+    (definition) => definition.location && routeNamePattern.test(definition.canonicalRouteName ?? '')
+  );
   const numericVanity = matches.find((definition) => /^\d+$/.test(definition.location?.vanityPageId ?? ''));
   return numericVanity?.location ?? matches[0]?.location ?? null;
 }
@@ -236,11 +246,7 @@ export function extractMarketplaceQueryContextsFromHtml(html: string): Marketpla
 
   for (const payload of payloads) {
     const queryNodes: Record<string, unknown>[] = [];
-    collectMatchingNodes(
-      payload,
-      (node) => typeof node.queryName === 'string',
-      queryNodes
-    );
+    collectMatchingNodes(payload, (node) => typeof node.queryName === 'string', queryNodes);
 
     for (const node of queryNodes) {
       const variables = asRecord(node.variables) ?? {};

@@ -1,6 +1,10 @@
 import type { GraphQLFragment } from '../../types/contracts';
 import type { RouteDefinitionCaptureRecord } from '../../capture/route_definition_capture';
-import { parseMarketplaceListingFragments, parseMarketplaceSearchFragments, parseMarketplaceSellerInventoryFragments } from '../graphql/marketplace_parser';
+import {
+  parseMarketplaceListingFragments,
+  parseMarketplaceSearchFragments,
+  parseMarketplaceSellerInventoryFragments
+} from '../graphql/marketplace_parser';
 import { deepVisit, getString } from '../graphql/shared_graphql_utils';
 
 function countBy<T extends string>(values: T[]): Array<{ value: string; count: number }> {
@@ -8,22 +12,14 @@ function countBy<T extends string>(values: T[]): Array<{ value: string; count: n
   for (const value of values) {
     counts.set(value, (counts.get(value) ?? 0) + 1);
   }
-  return [...counts.entries()]
-    .sort((left, right) => right[1] - left[1])
-    .map(([value, count]) => ({ value, count }));
+  return [...counts.entries()].sort((left, right) => right[1] - left[1]).map(([value, count]) => ({ value, count }));
 }
 
 export function summarizeMarketplaceGraphqlFragments(fragments: GraphQLFragment[]): Record<string, unknown> {
   const friendlyNames = countBy(
-    fragments
-      .map((fragment) => fragment.request.friendlyName ?? '(unknown)')
-      .filter(Boolean)
+    fragments.map((fragment) => fragment.request.friendlyName ?? '(unknown)').filter(Boolean)
   );
-  const docIds = countBy(
-    fragments
-      .map((fragment) => fragment.request.docId ?? '(none)')
-      .filter(Boolean)
-  );
+  const docIds = countBy(fragments.map((fragment) => fragment.request.docId ?? '(none)').filter(Boolean));
   const labels: string[] = [];
   const paths: string[] = [];
   const listingIds = new Set<string>();
@@ -78,7 +74,10 @@ export function summarizeEmbeddedMarketplaceSearch(fragments: GraphQLFragment[])
   };
 }
 
-export function summarizeEmbeddedMarketplaceListing(fragments: GraphQLFragment[], listingId: string): Record<string, unknown> {
+export function summarizeEmbeddedMarketplaceListing(
+  fragments: GraphQLFragment[],
+  listingId: string
+): Record<string, unknown> {
   const listing = parseMarketplaceListingFragments(fragments, listingId);
   return {
     fragmentCount: fragments.reduce((sum, fragment) => sum + fragment.fragments.length, 0),

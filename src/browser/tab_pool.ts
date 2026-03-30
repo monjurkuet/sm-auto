@@ -3,7 +3,10 @@ import type { Browser, Page } from 'puppeteer-core';
 export class TabPool {
   private pages: Page[] = [];
 
-  constructor(private readonly browser: Browser, private readonly timeoutMs: number) {}
+  constructor(
+    private readonly browser: Browser,
+    private readonly timeoutMs: number
+  ) {}
 
   async acquire(): Promise<Page> {
     const page = this.pages.pop() ?? (await this.browser.newPage());

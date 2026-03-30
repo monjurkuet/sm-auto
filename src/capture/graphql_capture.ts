@@ -34,7 +34,7 @@ export class GraphQLCapture {
       }
 
       const requestMetadata = parseRequestMetadata(response.request().postData() ?? undefined);
-      let body = '';
+      let body: string;
       try {
         body = await response.text();
       } catch {

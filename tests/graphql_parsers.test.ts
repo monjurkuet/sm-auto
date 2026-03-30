@@ -45,44 +45,50 @@ test('parseMarketplaceSearchFragments extracts listing cards', () => {
 });
 
 test('parseMarketplaceSearchFragments prefers marketplace_search scoped payloads over unrelated embedded items', () => {
-  const fragments: GraphQLFragment[] = [{
-    url: 'embedded-html',
-    status: 200,
-    timestamp: '2026-03-15T00:00:00.000Z',
-    request: { friendlyName: 'embedded_document', rawFields: {} },
-    fragments: [
-      {
-        data: {
-          marketplace_search: {
-            feed_units: {
-              edges: [{
-                node: {
-                  listing: {
-                    __typename: 'GroupCommerceProductItem',
-                    id: 'search-1',
-                    marketplace_listing_title: 'Search Result Laptop',
-                    listing_price: { formatted_amount: 'BDT15,000', amount: '15000.00', currency: 'BDT' }
+  const fragments: GraphQLFragment[] = [
+    {
+      url: 'embedded-html',
+      status: 200,
+      timestamp: '2026-03-15T00:00:00.000Z',
+      request: { friendlyName: 'embedded_document', rawFields: {} },
+      fragments: [
+        {
+          data: {
+            marketplace_search: {
+              feed_units: {
+                edges: [
+                  {
+                    node: {
+                      listing: {
+                        __typename: 'GroupCommerceProductItem',
+                        id: 'search-1',
+                        marketplace_listing_title: 'Search Result Laptop',
+                        listing_price: { formatted_amount: 'BDT15,000', amount: '15000.00', currency: 'BDT' }
+                      }
+                    }
                   }
+                ]
+              }
+            }
+          }
+        },
+        {
+          data: {
+            marketplace_home_feed: {
+              marketplace_listings: [
+                {
+                  __typename: 'GroupCommerceProductItem',
+                  id: 'home-1',
+                  marketplace_listing_title: 'Unrelated Home Feed Item',
+                  listing_price: { formatted_amount: 'BDT1,000', amount: '1000.00', currency: 'BDT' }
                 }
-              }]
+              ]
             }
           }
         }
-      },
-      {
-        data: {
-          marketplace_home_feed: {
-            marketplace_listings: [{
-              __typename: 'GroupCommerceProductItem',
-              id: 'home-1',
-              marketplace_listing_title: 'Unrelated Home Feed Item',
-              listing_price: { formatted_amount: 'BDT1,000', amount: '1000.00', currency: 'BDT' }
-            }]
-          }
-        }
-      }
-    ]
-  }];
+      ]
+    }
+  ];
 
   const listings = parseMarketplaceSearchFragments(fragments);
   assert.equal(listings.length, 1);
@@ -105,79 +111,90 @@ test('parseMarketplaceSellerFragments extracts seller profile payload', () => {
 
 test('embedded seller inventory payloads are extracted from document html', () => {
   const firstPayload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        __bbox: {
-          result: {
-            data: {
-              profile: {
-                marketplace_listing_sets: {
-                  edges: [{
-                    node: {
-                      canonical_listing: {
-                        __typename: 'GroupCommerceProductItem',
-                        id: '1484770273045671',
-                        listing_price: {
-                          formatted_amount: 'BDT4,999',
-                          amount: '4999.00'
-                        },
-                        location: {
-                          reverse_geocode: {
-                            city: 'ঢাকা',
-                            city_page: { display_name: 'Dhaka, Bangladesh' }
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
+          {
+            __bbox: {
+              result: {
+                data: {
+                  profile: {
+                    marketplace_listing_sets: {
+                      edges: [
+                        {
+                          node: {
+                            canonical_listing: {
+                              __typename: 'GroupCommerceProductItem',
+                              id: '1484770273045671',
+                              listing_price: {
+                                formatted_amount: 'BDT4,999',
+                                amount: '4999.00'
+                              },
+                              location: {
+                                reverse_geocode: {
+                                  city: 'ঢাকা',
+                                  city_page: { display_name: 'Dhaka, Bangladesh' }
+                                }
+                              },
+                              marketplace_listing_title: 'Lenovo Centrino Duo fresh Laptop',
+                              marketplace_listing_seller: { id: '61572591435930', name: 'DI PU' }
+                            }
                           }
-                        },
-                        marketplace_listing_title: 'Lenovo Centrino Duo fresh Laptop',
-                        marketplace_listing_seller: { id: '61572591435930', name: 'DI PU' }
-                      }
+                        }
+                      ]
                     }
-                  }]
+                  }
                 }
               }
             }
           }
-        }
-      }]
-    ]]
+        ]
+      ]
+    ]
   };
   const secondPayload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        __bbox: {
-          result: {
-            label: 'MarketplaceSellerProfileInventoryList_profile$stream$MarketplaceSellerProfileInventoryList_profile_marketplace_listing_sets',
-            path: ['profile', 'marketplace_listing_sets', 'edges', 2],
-            data: {
-              node: {
-                canonical_listing: {
-                  __typename: 'GroupCommerceProductItem',
-                  id: '950298004113842',
-                  listing_price: {
-                    formatted_amount: 'BDT4,200',
-                    amount: '4200.00',
-                    currency: 'BDT'
-                  },
-                  location: {
-                    reverse_geocode: {
-                      city: 'ঢাকা',
-                      city_page: { display_name: 'Dhaka, Bangladesh' }
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
+          {
+            __bbox: {
+              result: {
+                label:
+                  'MarketplaceSellerProfileInventoryList_profile$stream$MarketplaceSellerProfileInventoryList_profile_marketplace_listing_sets',
+                path: ['profile', 'marketplace_listing_sets', 'edges', 2],
+                data: {
+                  node: {
+                    canonical_listing: {
+                      __typename: 'GroupCommerceProductItem',
+                      id: '950298004113842',
+                      listing_price: {
+                        formatted_amount: 'BDT4,200',
+                        amount: '4200.00',
+                        currency: 'BDT'
+                      },
+                      location: {
+                        reverse_geocode: {
+                          city: 'ঢাকা',
+                          city_page: { display_name: 'Dhaka, Bangladesh' }
+                        }
+                      },
+                      marketplace_listing_title: 'Samsung Netbook',
+                      marketplace_listing_seller: { id: '61572591435930', name: 'DI PU' }
                     }
-                  },
-                  marketplace_listing_title: 'Samsung Netbook',
-                  marketplace_listing_seller: { id: '61572591435930', name: 'DI PU' }
+                  }
                 }
               }
             }
           }
-        }
-      }]
-    ]]
+        ]
+      ]
+    ]
   };
   const html = `<html><body><script type="application/json" data-sjs>${JSON.stringify(firstPayload)}</script><script type="application/json" data-sjs>${JSON.stringify(secondPayload)}</script></body></html>`;
 
@@ -192,59 +209,68 @@ test('embedded seller inventory payloads are extracted from document html', () =
 
 test('listing parser prefers richer embedded product item nodes', () => {
   const sparsePayload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        __bbox: {
-          result: {
-            data: {
-              marketplace_listing_item: {
-                __typename: 'GroupCommerceProductItem',
-                id: '1244539514326495',
-                listing_photos: [],
-                pre_recorded_videos: [],
-                is_hidden: false
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
+          {
+            __bbox: {
+              result: {
+                data: {
+                  marketplace_listing_item: {
+                    __typename: 'GroupCommerceProductItem',
+                    id: '1244539514326495',
+                    listing_photos: [],
+                    pre_recorded_videos: [],
+                    is_hidden: false
+                  }
+                }
               }
             }
           }
-        }
-      }]
-    ]]
+        ]
+      ]
+    ]
   };
   const richPayload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        __bbox: {
-          result: {
-            data: {
-              marketplace_listing_item: {
-                __typename: 'GroupCommerceProductItem',
-                id: '1244539514326495',
-                marketplace_listing_title: 'Urgent Sell 13th Gen core i3 Hp Laptop 8GB RAM 512GB SSD New conditions',
-                listing_price: {
-                  formatted_amount_zeros_stripped: 'BDT0',
-                  amount: '0.00',
-                  currency: 'BDT'
-                },
-                location: {
-                  reverse_geocode: {
-                    city: 'ঢাকা',
-                    city_page: { display_name: 'Dhaka, Bangladesh' }
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
+          {
+            __bbox: {
+              result: {
+                data: {
+                  marketplace_listing_item: {
+                    __typename: 'GroupCommerceProductItem',
+                    id: '1244539514326495',
+                    marketplace_listing_title:
+                      'Urgent Sell 13th Gen core i3 Hp Laptop 8GB RAM 512GB SSD New conditions',
+                    listing_price: {
+                      formatted_amount_zeros_stripped: 'BDT0',
+                      amount: '0.00',
+                      currency: 'BDT'
+                    },
+                    location: {
+                      reverse_geocode: {
+                        city: 'ঢাকা',
+                        city_page: { display_name: 'Dhaka, Bangladesh' }
+                      }
+                    },
+                    marketplace_listing_seller: { id: '100009372925453', name: 'Md Obaidur Rahman' },
+                    delivery_types: ['IN_PERSON']
                   }
-                },
-                marketplace_listing_seller: { id: '100009372925453', name: 'Md Obaidur Rahman' },
-                delivery_types: ['IN_PERSON']
+                }
               }
             }
           }
-        }
-      }]
-    ]]
+        ]
+      ]
+    ]
   };
   const html = `<html><body><script type="application/json" data-sjs>${JSON.stringify(sparsePayload)}</script><script type="application/json" data-sjs>${JSON.stringify(richPayload)}</script></body></html>`;
 
@@ -292,22 +318,28 @@ test('bulk route definitions parser extracts location metadata', () => {
 
 test('extractMarketplaceSearchContextFromHtml extracts embedded buyLocation variables', () => {
   const payload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        preloaders: [{
-          queryName: 'CometMarketplaceSearchRootQuery',
-          variables: {
-            buyLocation: {
-              latitude: 23.7302,
-              longitude: 90.4152
-            }
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
+          {
+            preloaders: [
+              {
+                queryName: 'CometMarketplaceSearchRootQuery',
+                variables: {
+                  buyLocation: {
+                    latitude: 23.7302,
+                    longitude: 90.4152
+                  }
+                }
+              }
+            ]
           }
-        }]
-      }]
-    ]]
+        ]
+      ]
+    ]
   };
 
   const html = `<html><body><script type="application/json" data-sjs>${JSON.stringify(payload)}</script></body></html>`;
@@ -319,38 +351,44 @@ test('extractMarketplaceSearchContextFromHtml extracts embedded buyLocation vari
 
 test('extractMarketplaceQueryContextsFromHtml extracts listing target and buyLocation preloaders', () => {
   const payload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        preloaders: [
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
           {
-            queryName: 'MarketplacePDPContainerQuery',
-            variables: {
-              targetId: '1244539514326495'
-            }
-          },
-          {
-            queryName: 'CometMarketplaceLeftRailNavigationContainerQuery',
-            variables: {
-              buyLocation: {
-                radius: 65,
-                latitude: 23.7302,
-                longitude: 90.4152,
-                vanityPageId: '101889586519301'
+            preloaders: [
+              {
+                queryName: 'MarketplacePDPContainerQuery',
+                variables: {
+                  targetId: '1244539514326495'
+                }
+              },
+              {
+                queryName: 'CometMarketplaceLeftRailNavigationContainerQuery',
+                variables: {
+                  buyLocation: {
+                    radius: 65,
+                    latitude: 23.7302,
+                    longitude: 90.4152,
+                    vanityPageId: '101889586519301'
+                  }
+                }
               }
-            }
+            ]
           }
         ]
-      }]
-    ]]
+      ]
+    ]
   };
 
   const html = `<html><body><script type="application/json" data-sjs>${JSON.stringify(payload)}</script></body></html>`;
   const contexts = extractMarketplaceQueryContextsFromHtml(html);
   const listingQuery = contexts.find((context) => context.queryName === 'MarketplacePDPContainerQuery');
-  const browseQuery = contexts.find((context) => context.queryName === 'CometMarketplaceLeftRailNavigationContainerQuery');
+  const browseQuery = contexts.find(
+    (context) => context.queryName === 'CometMarketplaceLeftRailNavigationContainerQuery'
+  );
 
   assert.equal(listingQuery?.targetId, '1244539514326495');
   assert.equal(browseQuery?.buyLocation?.radius, 65);
@@ -359,20 +397,26 @@ test('extractMarketplaceQueryContextsFromHtml extracts listing target and buyLoc
 
 test('extractMarketplaceQueryContextsFromHtml extracts seller profile query ids', () => {
   const payload = {
-    require: [[
-      'ScheduledServerJS',
-      'handle',
-      null,
-      [{
-        preloaders: [{
-          queryName: 'MarketplaceSellerProfileInventoryQuery',
-          variables: {
-            sellerID: '61572591435930',
-            scale: 2
+    require: [
+      [
+        'ScheduledServerJS',
+        'handle',
+        null,
+        [
+          {
+            preloaders: [
+              {
+                queryName: 'MarketplaceSellerProfileInventoryQuery',
+                variables: {
+                  sellerID: '61572591435930',
+                  scale: 2
+                }
+              }
+            ]
           }
-        }]
-      }]
-    ]]
+        ]
+      ]
+    ]
   };
 
   const html = `<html><body><script type="application/json" data-sjs>${JSON.stringify(payload)}</script></body></html>`;

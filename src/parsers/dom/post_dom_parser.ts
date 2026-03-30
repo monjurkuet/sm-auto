@@ -6,10 +6,7 @@ export interface PostMetricSnapshot {
 }
 
 function normalizeMessageText(value: string | null): string {
-  return (value ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function metricCompleteness(snapshot: PostMetricSnapshot): number {
@@ -55,7 +52,9 @@ export async function snapshotPostMetrics(page: import('puppeteer-core').Page): 
         return values.reduce((sum, value) => sum + value, 0);
       }
 
-      const aggregate = labels.find((label) => /([\d,.]+)\s+reactions?/i.test(label) || /See who reacted to this/i.test(label));
+      const aggregate = labels.find(
+        (label) => /([\d,.]+)\s+reactions?/i.test(label) || /See who reacted to this/i.test(label)
+      );
       return aggregate ? parseNumber(aggregate) : null;
     };
 

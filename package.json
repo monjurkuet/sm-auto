@@ -8,7 +8,9 @@
     "build": "tsc -p tsconfig.json",
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test": "bun test tests/*.test.ts",
-    "validate": "npm run typecheck && npm test && npm run build",
+    "lint": "eslint 'src/**/*.ts'",
+    "format": "prettier --write 'src/**/*.ts' 'tests/**/*.ts'",
+    "validate": "bun run format && bun run typecheck && bun run lint && bun run test",
     "db:prepare": "bun run src/cli/db_prepare.ts",
     "smoke:live": "bun run src/cli/smoke.ts",
     "scrape:page-info": "bun run src/cli/scrape_page_info.ts",
@@ -25,10 +27,15 @@
     "yargs": "^18.0.0"
   },
   "devDependencies": {
+    "@eslint/js": "^10.0.1",
     "@types/node": "^25.5.0",
     "@types/pg": "^8.18.0",
     "@types/yargs": "^17.0.35",
-    "ts-node": "^10.9.2",
-    "typescript": "^5.9.3"
+    "@typescript-eslint/eslint-plugin": "^8.57.2",
+    "@typescript-eslint/parser": "^8.57.2",
+    "eslint": "^10.1.0",
+    "prettier": "^3.8.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.57.2"
   }
 }

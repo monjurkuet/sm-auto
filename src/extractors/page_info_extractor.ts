@@ -24,9 +24,11 @@ import { getString } from '../parsers/graphql/shared_graphql_utils';
 import { buildDirectoryContactUrl, buildDirectoryBasicInfoUrl } from '../routes/facebook_routes';
 import type { ExtractorResult, PageInfoResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
-import { extractPageTransparency } from './page_transparency_extractor';
 
-export async function extractPageInfo(context: ScraperContext, pageUrl: string): Promise<ExtractorResult<PageInfoResult>> {
+export async function extractPageInfo(
+  context: ScraperContext,
+  pageUrl: string
+): Promise<ExtractorResult<PageInfoResult>> {
   const chrome = new ChromeClient(context.chromePort);
   const browser = await chrome.connect();
   const session = new PageSession(browser, context.timeoutMs);
@@ -83,7 +85,7 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       await routeCapture.detach(page);
 
       // Extract page ID from route definitions (authoritative source)
-      const routes = routeCapture.records.flatMap(record => record.routes);
+      const routes = routeCapture.records.flatMap((record) => record.routes);
       let pageId: string | null = null;
       let pageName: string | null = null;
 
@@ -112,7 +114,9 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
         phones: [...new Set([...mainContact.phones, ...contactPageContact.phones, ...basicInfoContact.phones])],
         emails: [...new Set([...mainContact.emails, ...contactPageContact.emails, ...basicInfoContact.emails])],
         websites: [...new Set([...mainContact.websites, ...contactPageContact.websites, ...basicInfoContact.websites])],
-        addresses: [...new Set([...mainContact.addresses, ...contactPageContact.addresses, ...basicInfoContact.addresses])],
+        addresses: [
+          ...new Set([...mainContact.addresses, ...contactPageContact.addresses, ...basicInfoContact.addresses])
+        ],
         socialMedia: [...contactPageContact.socialMedia] // Contact page has the most social media info
       };
 
@@ -121,15 +125,11 @@ export async function extractPageInfo(context: ScraperContext, pageUrl: string):
       const location = embeddedLocation ?? basicInfoLocation;
 
       // Try to get creation date from basic info page
-      let creationDate = parseLabeledValue(basicInfoSnapshot, /^page created$/i)
-        ?? parseLabeledValue(basicInfoSnapshot, /^created$/i)
-        ?? parseLabeledValue(basicInfoSnapshot, /^creation date$/i)
-        ?? transparency.creationDate;
-
-      const transparencySnapshot = {
-        ...mainSnapshot,
-        spans: transparency.history
-      };
+      const creationDate =
+        parseLabeledValue(basicInfoSnapshot, /^page created$/i) ??
+        parseLabeledValue(basicInfoSnapshot, /^created$/i) ??
+        parseLabeledValue(basicInfoSnapshot, /^creation date$/i) ??
+        transparency.creationDate;
 
       if (!pageId) {
         throw new Error(`Failed to extract page ID for ${pageUrl}. Skipping scrape.`);

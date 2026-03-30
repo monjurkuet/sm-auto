@@ -1,5 +1,8 @@
 export class ScraperError extends Error {
-  constructor(message: string, readonly code = 'SCRAPER_ERROR') {
+  constructor(
+    message: string,
+    readonly code = 'SCRAPER_ERROR'
+  ) {
     super(message);
     this.name = 'ScraperError';
   }

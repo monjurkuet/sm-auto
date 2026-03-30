@@ -8,25 +8,33 @@ import type {
   PageInfoResult,
   PagePostsResult
 } from '../../types/contracts';
-import type {
+import type { PostgresJobPersistence, ScrapeRunCompletion, ScrapeRunStartInput } from './persistence_contracts';
+import {
+  persistMarketplaceListingSurface,
+  persistMarketplaceSearchSurface,
+  persistMarketplaceSellerSurface
+} from './marketplace_repository';
+import { persistPageInfoSurface } from './page_repository';
+import { persistPagePostsSurface } from './post_repository';
+import { completeScrapeRun, startScrapeRun } from './run_repository';
+
+export type {
   PostgresJobPersistence,
   ScrapeRunCompletion,
   ScrapeRunStartInput,
   ScrapeSurface
 } from './persistence_contracts';
-import { persistMarketplaceListingSurface, persistMarketplaceSearchSurface, persistMarketplaceSellerSurface } from './marketplace_repository';
-import { persistPageInfoSurface } from './page_repository';
-import { persistPagePostsSurface } from './post_repository';
-import { completeScrapeRun, startScrapeRun } from './run_repository';
-
-export type { PostgresJobPersistence, ScrapeRunCompletion, ScrapeRunStartInput, ScrapeSurface } from './persistence_contracts';
 export { failScrapeRun } from './run_repository';
 
 export async function startPersistenceRun(client: PoolClient, input: ScrapeRunStartInput): Promise<string> {
   return startScrapeRun(client, input);
 }
 
-export async function completePersistenceRun(client: PoolClient, scrapeRunId: string, completion: ScrapeRunCompletion): Promise<void> {
+export async function completePersistenceRun(
+  client: PoolClient,
+  scrapeRunId: string,
+  completion: ScrapeRunCompletion
+): Promise<void> {
   return completeScrapeRun(client, scrapeRunId, completion);
 }
 
@@ -54,7 +62,11 @@ export function createPagePostsPersistence(url: string): PostgresJobPersistence<
   };
 }
 
-export function createMarketplaceSearchPersistence(queryText: string, location: string, searchUrl: string): PostgresJobPersistence<MarketplaceSearchResult> {
+export function createMarketplaceSearchPersistence(
+  queryText: string,
+  location: string,
+  searchUrl: string
+): PostgresJobPersistence<MarketplaceSearchResult> {
   return {
     start: {
       surface: 'marketplace_search',
@@ -70,7 +82,10 @@ export function createMarketplaceSearchPersistence(queryText: string, location: 
   };
 }
 
-export function createMarketplaceListingPersistence(listingId: string, url: string): PostgresJobPersistence<MarketplaceListingResult> {
+export function createMarketplaceListingPersistence(
+  listingId: string,
+  url: string
+): PostgresJobPersistence<MarketplaceListingResult> {
   return {
     start: {
       surface: 'marketplace_listing',
@@ -83,7 +98,10 @@ export function createMarketplaceListingPersistence(listingId: string, url: stri
   };
 }
 
-export function createMarketplaceSellerPersistence(sellerId: string, url: string): PostgresJobPersistence<MarketplaceSellerResult> {
+export function createMarketplaceSellerPersistence(
+  sellerId: string,
+  url: string
+): PostgresJobPersistence<MarketplaceSellerResult> {
   return {
     start: {
       surface: 'marketplace_seller',

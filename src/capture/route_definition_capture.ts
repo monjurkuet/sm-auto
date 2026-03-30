@@ -2,7 +2,10 @@ import type { HTTPResponse, Page } from 'puppeteer-core';
 
 import type { RequestMetadata } from '../types/contracts';
 import { parseRequestMetadata } from './request_metadata';
-import { parseBulkRouteDefinitionsBody, type MarketplaceRouteDefinition } from '../parsers/embedded/marketplace_embedded_parser';
+import {
+  parseBulkRouteDefinitionsBody,
+  type MarketplaceRouteDefinition
+} from '../parsers/embedded/marketplace_embedded_parser';
 
 export interface RouteDefinitionCaptureRecord {
   url: string;
@@ -27,7 +30,7 @@ export class RouteDefinitionCapture {
         return;
       }
 
-      let body = '';
+      let body: string;
       try {
         body = await response.text();
       } catch {

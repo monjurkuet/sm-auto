@@ -21,8 +21,12 @@ export async function snapshotPageDom(page: import('puppeteer-core').Page): Prom
     return {
       title: document.title,
       url: window.location.href,
-      headings: Array.from(document.querySelectorAll('h1, h2')).map((el) => text(el) ?? '').filter(Boolean),
-      spans: Array.from(document.querySelectorAll('span')).map((el) => text(el) ?? '').filter(Boolean),
+      headings: Array.from(document.querySelectorAll('h1, h2'))
+        .map((el) => text(el) ?? '')
+        .filter(Boolean),
+      spans: Array.from(document.querySelectorAll('span'))
+        .map((el) => text(el) ?? '')
+        .filter(Boolean),
       links: Array.from(document.querySelectorAll('a')).map((anchor) => ({
         href: anchor.getAttribute('href'),
         text: text(anchor)
@@ -58,7 +62,7 @@ export function parseContactInfoFromDom(snapshot: PageDomSnapshot): PageContactI
 
   // Improved phone extraction - handle patterns like "Phone\n09609-016810"
   const fullText = snapshot.spans.join('\n');
-  const phoneMatch = fullText.match(/Phone[\s\n]+([\d\-\+]+)/);
+  const phoneMatch = fullText.match(/Phone[\s\n]+([\d-+]+)/);
   if (phoneMatch) {
     info.phones.push(phoneMatch[1]);
   }
@@ -192,7 +196,7 @@ export function parseBio(snapshot: PageDomSnapshot): string | null {
     if (/^\d+K$/.test(span)) continue;
 
     // Skip transparency UI messages
-    if (span.includes("The number of followers includes")) continue;
+    if (span.includes('The number of followers includes')) continue;
     if (span.includes("You'll see names")) continue;
 
     // Test against patterns
@@ -215,7 +219,10 @@ export function parseLocation(snapshot: PageDomSnapshot): string | null {
       // Skip if next is empty or is a UI label
       if (next && !/^(address|map|directions|edit|save|cancel)$/i.test(next)) {
         // Only accept if it looks like a location (contains city name or country)
-        if (/^(dhaka|chittagong|chattogram|bangladesh|bangladesh|BD|banani|gulshan|dhanmondi|uttara)/i.test(next) || /Bangladesh/i.test(next)) {
+        if (
+          /^(dhaka|chittagong|chattogram|bangladesh|bangladesh|BD|banani|gulshan|dhanmondi|uttara)/i.test(next) ||
+          /Bangladesh/i.test(next)
+        ) {
           return next;
         }
       }
@@ -247,12 +254,16 @@ export function parseCategory(snapshot: PageDomSnapshot): string | null {
     }
   }
 
-  return snapshot.headings.find((heading) => !/^(about|intro|contact info|basic info|categories)$/i.test(heading)) ?? null;
+  return (
+    snapshot.headings.find((heading) => !/^(about|intro|contact info|basic info|categories)$/i.test(heading)) ?? null
+  );
 }
 
 export function parsePageName(snapshot: PageDomSnapshot): string | null {
   const heading = snapshot.headings.find((value) => {
-    return !/^(notifications|new|earlier|marketplace|about|intro|contact info|basic info|categories|details|seller information|today's picks)$/i.test(value);
+    return !/^(notifications|new|earlier|marketplace|about|intro|contact info|basic info|categories|details|seller information|today's picks)$/i.test(
+      value
+    );
   });
 
   if (heading) {

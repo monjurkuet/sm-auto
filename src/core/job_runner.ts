@@ -11,6 +11,14 @@ import {
   type PostgresJobPersistence
 } from '../storage/postgres/persistence';
 
+/**
+ * Sanitizes error stack traces by removing absolute file paths.
+ * This prevents exposing internal directory structure in stored error logs.
+ */
+function sanitizeStackTrace(stack: string): string {
+  return stack.replace(/\/[^\s]+\/src\//g, '/src/');
+}
+
 export async function runScrapeJob<T>(
   context: ScraperContext,
   jobName: string,
@@ -45,9 +53,10 @@ export async function runScrapeJob<T>(
     return result;
   } catch (error) {
     if (context.persistDb && scrapeRunId) {
-      const message = error instanceof Error ? error.message : String(error);
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      const errorStack = error instanceof Error && error.stack ? sanitizeStackTrace(error.stack) : errorMessage;
       try {
-        await withTransaction((client) => failScrapeRun(client, scrapeRunId as string, message));
+        await withTransaction((client) => failScrapeRun(client, scrapeRunId as string, errorStack));
       } catch (persistError) {
         context.logger.warn('Failed to mark scrape run as failed in Postgres', persistError);
       }

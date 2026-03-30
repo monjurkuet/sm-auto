@@ -1,5 +1,7 @@
 import path from 'node:path';
 
+import { closePostgresPool } from '../storage/postgres/client';
+
 import yargs from 'yargs/yargs';
 import { hideBin } from 'yargs/helpers';
 
@@ -53,8 +55,11 @@ async function main(): Promise<void> {
     extractPagePosts(withDir('page_posts'), args.pageUrl)
   );
 
-  const searchResult = await runScrapeJob(withDir('marketplace_search'), 'marketplace-search', 'marketplace_search.json', () =>
-    extractMarketplaceSearch(withDir('marketplace_search'), args.query, args.location)
+  const searchResult = await runScrapeJob(
+    withDir('marketplace_search'),
+    'marketplace-search',
+    'marketplace_search.json',
+    () => extractMarketplaceSearch(withDir('marketplace_search'), args.query, args.location)
   );
 
   const listingId = args.listingId ?? searchResult.data.listings[0]?.id;
@@ -77,4 +82,9 @@ async function main(): Promise<void> {
   );
 }
 
-void main();
+void main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => closePostgresPool());

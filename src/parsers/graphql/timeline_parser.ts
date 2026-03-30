@@ -7,7 +7,9 @@ export interface TimelineIdentity {
 }
 
 function normalizeStory(node: Record<string, unknown>): PagePost {
-  const authorNode = ((node.actors as unknown[])?.[0] ?? (node.feedback as Record<string, unknown> | undefined)?.owning_profile ?? {}) as Record<string, unknown>;
+  const authorNode = ((node.actors as unknown[])?.[0] ??
+    (node.feedback as Record<string, unknown> | undefined)?.owning_profile ??
+    {}) as Record<string, unknown>;
   const textCandidates: string[] = [];
   const hashtags = new Set<string>();
   const links = new Set<string>();
@@ -153,7 +155,9 @@ export function parseTimelineIdentity(fragments: GraphQLFragment[]): TimelineIde
         }
 
         if (node.__typename === 'Story' || node.__isFeedUnit === 'Story') {
-          const actor = Array.isArray(node.actors) ? (node.actors[0] as Record<string, unknown> | undefined) : undefined;
+          const actor = Array.isArray(node.actors)
+            ? (node.actors[0] as Record<string, unknown> | undefined)
+            : undefined;
           if (actor) {
             identity = {
               pageId: getString(actor.id) ?? identity.pageId,
@@ -163,7 +167,9 @@ export function parseTimelineIdentity(fragments: GraphQLFragment[]): TimelineIde
           }
         }
 
-        const feedbackOwner = (node.feedback as Record<string, unknown> | undefined)?.owning_profile as Record<string, unknown> | undefined;
+        const feedbackOwner = (node.feedback as Record<string, unknown> | undefined)?.owning_profile as
+          | Record<string, unknown>
+          | undefined;
         if (feedbackOwner) {
           identity = {
             pageId: getString(feedbackOwner.id) ?? identity.pageId,

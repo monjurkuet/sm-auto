@@ -1,4 +1,5 @@
 import yargs from 'yargs/yargs';
+import { closePostgresPool } from '../storage/postgres/client';
 import { hideBin } from 'yargs/helpers';
 
 import { runScrapeJob } from '../core/job_runner';
@@ -10,9 +11,18 @@ import { parseSharedOptions } from './shared';
 async function main(): Promise<void> {
   const args = yargs(hideBin(process.argv)).option('listing-id', { type: 'string', demandOption: true }).parseSync();
   const context = parseSharedOptions(process.argv);
-  await runScrapeJob(context, 'marketplace-listing', 'marketplace_listing.json', () =>
-    extractMarketplaceListing(context, args.listingId)
-  , createMarketplaceListingPersistence(args.listingId, buildMarketplaceListingUrl(args.listingId)));
+  await runScrapeJob(
+    context,
+    'marketplace-listing',
+    'marketplace_listing.json',
+    () => extractMarketplaceListing(context, args.listingId),
+    createMarketplaceListingPersistence(args.listingId, buildMarketplaceListingUrl(args.listingId))
+  );
 }
 
-void main();
+void main()
+  .catch((err) => {
+    console.error(err);
+    process.exitCode = 1;
+  })
+  .finally(() => closePostgresPool());

@@ -10,7 +10,10 @@ import type { ExtractorResult, PagePostsResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
 import { getString } from '../parsers/graphql/shared_graphql_utils';
 
-export async function extractPagePosts(context: ScraperContext, pageUrl: string): Promise<ExtractorResult<PagePostsResult>> {
+export async function extractPagePosts(
+  context: ScraperContext,
+  pageUrl: string
+): Promise<ExtractorResult<PagePostsResult>> {
   const chrome = new ChromeClient(context.chromePort);
   const browser = await chrome.connect();
   const session = new PageSession(browser, context.timeoutMs);
@@ -35,9 +38,8 @@ export async function extractPagePosts(context: ScraperContext, pageUrl: string)
       await capture.detach(page);
 
       // Extract page ID from route definitions (authoritative source)
-      const routes = routeCapture.records.flatMap(record => record.routes);
+      const routes = routeCapture.records.flatMap((record) => record.routes);
       let pageId: string | null = null;
-      let pageName: string | null = null;
 
       // Get page ID from route definitions - look for profile timeline route
       for (const route of routes) {
@@ -51,7 +53,6 @@ export async function extractPagePosts(context: ScraperContext, pageUrl: string)
         const props = (rootView?.props ?? rootView) as Record<string, unknown> | undefined;
         if (props?.userID) {
           pageId = getString(props.userID);
-          pageName = getString(props.userVanity) ?? null;
           break;
         }
       }

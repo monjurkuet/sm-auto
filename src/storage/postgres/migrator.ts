@@ -25,7 +25,10 @@ async function ensureDatabaseExists(config: PostgresConfig): Promise<void> {
   const client = new Client({ connectionString: getAdminConnectionString(config) });
   await client.connect();
   try {
-    const exists = await client.query<{ exists: boolean }>('SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists', [config.database]);
+    const exists = await client.query<{ exists: boolean }>(
+      'SELECT EXISTS (SELECT 1 FROM pg_database WHERE datname = $1) AS exists',
+      [config.database]
+    );
     if (exists.rows[0]?.exists) {
       return;
     }
@@ -65,9 +68,7 @@ export async function applyPendingMigrations(cwd = process.cwd(), config = getPo
   }
   await ensureMigrationTable(config);
 
-  const files = (await fs.readdir(getMigrationsDir(cwd)))
-    .filter((file) => file.endsWith('.sql'))
-    .sort();
+  const files = (await fs.readdir(getMigrationsDir(cwd))).filter((file) => file.endsWith('.sql')).sort();
 
   const migrationClient = new Client({ connectionString: config.connectionString });
   await migrationClient.connect();

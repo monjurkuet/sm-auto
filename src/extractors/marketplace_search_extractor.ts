@@ -65,7 +65,9 @@ export async function extractMarketplaceSearch(
               latitude: embeddedSearchContext?.latitude ?? routeLocation?.latitude ?? null,
               longitude: embeddedSearchContext?.longitude ?? routeLocation?.longitude ?? null,
               vanityPageId:
-                (routeLocation?.vanityPageId && /^\d+$/.test(routeLocation.vanityPageId) ? routeLocation.vanityPageId : null) ??
+                (routeLocation?.vanityPageId && /^\d+$/.test(routeLocation.vanityPageId)
+                  ? routeLocation.vanityPageId
+                  : null) ??
                 embeddedSearchContext?.vanityPageId ??
                 null
             }

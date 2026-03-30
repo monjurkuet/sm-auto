@@ -2,10 +2,7 @@ import type { PagePost } from '../types/contracts';
 import type { PostMetricSnapshot } from '../parsers/dom/post_dom_parser';
 
 function normalizeText(value: string | null): string {
-  return (value ?? '')
-    .replace(/\s+/g, ' ')
-    .trim()
-    .toLowerCase();
+  return (value ?? '').replace(/\s+/g, ' ').trim().toLowerCase();
 }
 
 function scoreMatch(post: PagePost, metric: PostMetricSnapshot): number {

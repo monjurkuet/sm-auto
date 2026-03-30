@@ -1,6 +1,8 @@
 import type { MarketplaceListing } from '../../types/contracts';
 
-function uniqueImages(images: Array<{ url: string | null; width?: number; height?: number }>): Array<{ url: string | null; width?: number; height?: number }> {
+function uniqueImages(
+  images: Array<{ url: string | null; width?: number; height?: number }>
+): Array<{ url: string | null; width?: number; height?: number }> {
   const seen = new Set<string>();
   return images.filter((image) => {
     if (!image.url || seen.has(image.url)) {
@@ -17,7 +19,10 @@ function uniqueImages(images: Array<{ url: string | null; width?: number; height
   });
 }
 
-export async function parseMarketplaceListingFromDom(page: import('puppeteer-core').Page, listingId: string): Promise<MarketplaceListing> {
+export async function parseMarketplaceListingFromDom(
+  page: import('puppeteer-core').Page,
+  listingId: string
+): Promise<MarketplaceListing> {
   const result = await page.evaluate((id) => {
     const headings = Array.from(document.querySelectorAll('h1, h2, h3'))
       .map((element) => element.textContent?.trim() ?? '')
@@ -26,7 +31,9 @@ export async function parseMarketplaceListingFromDom(page: import('puppeteer-cor
       .map((element) => element.textContent?.trim() ?? '')
       .filter(Boolean);
     const detailHeading =
-      headings.find((value) => !/^(Notifications|New|Earlier|Marketplace|Details|Seller information|Today's picks)$/i.test(value)) ?? null;
+      headings.find(
+        (value) => !/^(Notifications|New|Earlier|Marketplace|Details|Seller information|Today's picks)$/i.test(value)
+      ) ?? null;
     const documentTitle = document.title
       .replace(/^\(\d+\)\s*/, '')
       .replace(/^Marketplace\s+[–-]\s*/i, '')
@@ -39,7 +46,9 @@ export async function parseMarketplaceListingFromDom(page: import('puppeteer-cor
     const listedInText = spans.find((value) => /^Listed .* in /i.test(value));
     const locationText = spans.find((value) => /, বাংলাদেশ|, Bangladesh|ঢাকা, বাংলাদেশ|Dhaka, Bangladesh/.test(value));
     const descriptionCandidates = spans.filter((value) => value.length > 80 && !/^Today's picks/i.test(value));
-    const sellerLinks = Array.from(document.querySelectorAll('a[href*="/marketplace/profile/"]')) as HTMLAnchorElement[];
+    const sellerLinks = Array.from(
+      document.querySelectorAll('a[href*="/marketplace/profile/"]')
+    ) as HTMLAnchorElement[];
     const sellerLink =
       sellerLinks.find((link) => (link.textContent ?? '').trim() && !/seller details/i.test(link.textContent ?? '')) ??
       sellerLinks[0] ??
@@ -55,18 +64,23 @@ export async function parseMarketplaceListingFromDom(page: import('puppeteer-cor
         formatted: priceText
       },
       seller: {
-        id: sellerLink?.href.match(/\/marketplace\/profile\/(\d+)/)?.[1] ?? sellerLink?.href.match(/id=(\d+)/)?.[1] ?? null,
+        id:
+          sellerLink?.href.match(/\/marketplace\/profile\/(\d+)/)?.[1] ??
+          sellerLink?.href.match(/id=(\d+)/)?.[1] ??
+          null,
         name: (sellerLink?.textContent ?? '').trim() || null
       },
       location: {
         city: locationText?.split(',')[0] ?? null,
         fullLocation: listedInText?.replace(/^Listed .* in /i, '') ?? locationText ?? null
       },
-      images: Array.from(document.querySelectorAll('img')).slice(0, 20).map((img) => ({
-        url: img.getAttribute('src'),
-        width: img.naturalWidth || undefined,
-        height: img.naturalHeight || undefined
-      })),
+      images: Array.from(document.querySelectorAll('img'))
+        .slice(0, 20)
+        .map((img) => ({
+          url: img.getAttribute('src'),
+          width: img.naturalWidth || undefined,
+          height: img.naturalHeight || undefined
+        })),
       availability: null,
       categoryId: null,
       deliveryOptions: []
@@ -102,10 +116,11 @@ export async function parseMarketplaceSellerFromDom(
       .filter(Boolean);
     const links = Array.from(document.querySelectorAll('a[href]')) as HTMLAnchorElement[];
     const memberIndex = spans.findIndex((value) => /^Joined Facebook in /i.test(value));
-    const name = memberIndex > 0 ? spans[memberIndex - 1] ?? null : null;
+    const name = memberIndex > 0 ? (spans[memberIndex - 1] ?? null) : null;
     const memberSince = memberIndex >= 0 ? spans[memberIndex] : null;
     const responsive = spans.find((value) => /responsive/i.test(value)) ?? null;
-    const sellerContext = memberIndex >= 0 ? spans.slice(Math.max(0, memberIndex - 12), memberIndex + 6) : spans.slice(0, 20);
+    const sellerContext =
+      memberIndex >= 0 ? spans.slice(Math.max(0, memberIndex - 12), memberIndex + 6) : spans.slice(0, 20);
     const ratingText = sellerContext.find((value) => /^\d+(\.\d+)?\s+\(\d+\)$/.test(value)) ?? null;
     const reviewCountMatch = ratingText?.match(/\((\d+)\)/) ?? spans.join(' ').match(/\((\d+)\)/);
     const ratingMatch = ratingText?.match(/^(\d+(?:\.\d+)?)/);
@@ -125,9 +140,7 @@ export async function parseMarketplaceSellerFromDom(
         null;
       const priceMatch = priceText?.match(/^(BDT[\d,]+|\$[\d,]+|FREE)$/i) ?? null;
       const idMatch = link.href.match(/\/marketplace\/item\/(\d+)/);
-      const locationText =
-        spanTexts.find((entry) => /,\s*(Bangladesh|বাংলাদেশ)$/i.test(entry)) ??
-        null;
+      const locationText = spanTexts.find((entry) => /,\s*(Bangladesh|বাংলাদেশ)$/i.test(entry)) ?? null;
       const title =
         spanTexts.find((entry) => entry !== priceText && entry !== locationText && !/^Just listed$/i.test(entry)) ??
         normalizedValue

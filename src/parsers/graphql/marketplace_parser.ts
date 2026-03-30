@@ -1,8 +1,4 @@
-import type {
-  GraphQLFragment,
-  MarketplaceListing,
-  MarketplaceSellerResult
-} from '../../types/contracts';
+import type { GraphQLFragment, MarketplaceListing, MarketplaceSellerResult } from '../../types/contracts';
 import { deepVisit, getNumber, getString } from './shared_graphql_utils';
 
 function asRecord(value: unknown): Record<string, unknown> | null {
@@ -50,10 +46,7 @@ function extractPrice(node: Record<string, unknown>): MarketplaceListing['price'
 
   return {
     amount: getNumber(priceNode.amount),
-    currency:
-      getString(priceNode.currency_code) ??
-      getString(priceNode.currency) ??
-      inferCurrency(formatted),
+    currency: getString(priceNode.currency_code) ?? getString(priceNode.currency) ?? inferCurrency(formatted),
     formatted
   };
 }
@@ -168,7 +161,11 @@ function scoreListing(listing: MarketplaceListing): number {
   return score;
 }
 
-function addScoredListing(listings: Map<string, MarketplaceListing>, node: Record<string, unknown>, force = false): void {
+function addScoredListing(
+  listings: Map<string, MarketplaceListing>,
+  node: Record<string, unknown>,
+  force = false
+): void {
   if (!force && node.__typename !== 'GroupCommerceProductItem') {
     return;
   }
@@ -184,7 +181,10 @@ function addScoredListing(listings: Map<string, MarketplaceListing>, node: Recor
   }
 }
 
-function normalizeSellerNode(node: Record<string, unknown>, fallbackSellerId: string): MarketplaceSellerResult['seller'] {
+function normalizeSellerNode(
+  node: Record<string, unknown>,
+  fallbackSellerId: string
+): MarketplaceSellerResult['seller'] {
   const ratingNode = asRecord(node.rating) ?? {};
   const ratingStats = asRecord(asRecord(node.marketplace_ratings_stats_by_role_v2)?.seller_stats) ?? {};
   const ratingCombined = asRecord(asRecord(node.marketplace_ratings_stats_by_role_v2)?.seller_buyer_combined) ?? {};
@@ -203,10 +203,7 @@ function normalizeSellerNode(node: Record<string, unknown>, fallbackSellerId: st
       getNumber(ratingStats.five_star_total_rating_count_by_role) ??
       getNumber(ratingCombined.five_star_total_rating_count_by_role),
     location: getString(locationNode.name),
-    memberSince:
-      getString(node.created_time) ??
-      getNumber(node.created_time) ??
-      getNumber(node.join_time)
+    memberSince: getString(node.created_time) ?? getNumber(node.created_time) ?? getNumber(node.join_time)
   };
 }
 
@@ -221,7 +218,10 @@ function scoreSellerProfile(seller: MarketplaceSellerResult['seller']): number {
   return score;
 }
 
-function mergeSellerProfile(current: MarketplaceSellerResult['seller'], candidate: MarketplaceSellerResult['seller']): MarketplaceSellerResult['seller'] {
+function mergeSellerProfile(
+  current: MarketplaceSellerResult['seller'],
+  candidate: MarketplaceSellerResult['seller']
+): MarketplaceSellerResult['seller'] {
   return scoreSellerProfile(candidate) >= scoreSellerProfile(current) ? candidate : current;
 }
 
@@ -293,7 +293,10 @@ export function parseMarketplaceSellerInventoryFragments(fragments: GraphQLFragm
   return [...listings.values()];
 }
 
-export function parseMarketplaceListingFragments(fragments: GraphQLFragment[], listingId?: string): MarketplaceListing | null {
+export function parseMarketplaceListingFragments(
+  fragments: GraphQLFragment[],
+  listingId?: string
+): MarketplaceListing | null {
   const listings = new Map<string, MarketplaceListing>();
 
   for (const fragment of fragments) {
@@ -323,7 +326,10 @@ export function parseMarketplaceListingFragments(fragments: GraphQLFragment[], l
   return [...listings.values()].sort((left, right) => scoreListing(right) - scoreListing(left))[0] ?? null;
 }
 
-export function parseMarketplaceSellerFragments(fragments: GraphQLFragment[], sellerId: string): MarketplaceSellerResult {
+export function parseMarketplaceSellerFragments(
+  fragments: GraphQLFragment[],
+  sellerId: string
+): MarketplaceSellerResult {
   let seller: MarketplaceSellerResult['seller'] = {
     id: sellerId,
     name: null,
@@ -340,9 +346,7 @@ export function parseMarketplaceSellerFragments(fragments: GraphQLFragment[], se
       const profileNode = asRecord(asRecord(root.data)?.profile);
       const sellerNode =
         asRecord(asRecord(root.data)?.marketplace_seller_profile) ??
-        (getString(profileNode?.id) === sellerId
-          ? profileNode
-          : null);
+        (getString(profileNode?.id) === sellerId ? profileNode : null);
       if (sellerNode) {
         seller = mergeSellerProfile(seller, normalizeSellerNode(sellerNode, sellerId));
       }

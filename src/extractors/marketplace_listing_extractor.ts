@@ -94,7 +94,9 @@ export async function extractMarketplaceListing(
         /CometMarketplace(?:HomeRoute|SearchRoute|InboxRoute|NotificationsNavRoute|StatusRoute)|MarketplaceBuyingActivityRoute|MarketplaceSellingUIMRoute/
       );
       const queryContexts = extractMarketplaceQueryContextsFromHtml(html);
-      const listingQueries = queryContexts.filter((query) => query.targetId === listingId && /MarketplacePDP|MarketplacePermalink/i.test(query.queryName));
+      const listingQueries = queryContexts.filter(
+        (query) => query.targetId === listingId && /MarketplacePDP|MarketplacePermalink/i.test(query.queryName)
+      );
       const buyLocation = mergeLocationContext(
         queryContexts.find((query) => query.buyLocation && /Marketplace/i.test(query.queryName))?.buyLocation ?? null,
         browseRouteDefinition?.location ?? routeDefinition?.location ?? null
@@ -113,7 +115,9 @@ export async function extractMarketplaceListing(
         },
         artifacts: {
           graphql_summary: summarizeMarketplaceGraphqlFragments(graphqlFragments),
-          embedded_document_summary: embeddedDocument ? summarizeEmbeddedMarketplaceListing([embeddedDocument], listingId) : null,
+          embedded_document_summary: embeddedDocument
+            ? summarizeEmbeddedMarketplaceListing([embeddedDocument], listingId)
+            : null,
           route_definitions_summary: summarizeRouteDefinitions(routeCapture.records),
           used_dom_fallback: !fromGraphql,
           dom_listing: fromDom
