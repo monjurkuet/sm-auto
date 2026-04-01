@@ -1,13 +1,18 @@
+import type { Page } from 'puppeteer-core';
+
 import { ChromeClient } from '../browser/chrome_client';
 import { PageSession } from '../browser/page_session';
-import { GraphQLCapture } from '../capture/graphql_capture';
 import { RouteDefinitionCapture } from '../capture/route_definition_capture';
-import { sleep } from '../core/sleep';
+import {
+  countMarketplaceItemLinks,
+  enableMarketplaceRequestFiltering,
+  mergeMarketplaceLocationContext
+} from './marketplace_helpers';
 import { normalizeMarketplaceSeller } from '../normalizers/seller_normalizer';
 import { parseMarketplaceSellerFromDom } from '../parsers/dom/marketplace_dom_parser';
 import {
+  summarizeDomMarketplaceSeller,
   summarizeEmbeddedMarketplaceSeller,
-  summarizeMarketplaceGraphqlFragments,
   summarizeRouteDefinitions
 } from '../parsers/embedded/marketplace_artifact_summary';
 import {
@@ -17,26 +22,99 @@ import {
 } from '../parsers/embedded/marketplace_embedded_parser';
 import { parseMarketplaceSellerFragments } from '../parsers/graphql/marketplace_parser';
 import { buildMarketplaceSellerUrl } from '../routes/marketplace_routes';
-import type { ExtractorResult, MarketplaceRouteLocationContext, MarketplaceSellerResult } from '../types/contracts';
+import type { ExtractorResult, MarketplaceSellerResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
 
-function mergeLocationContext(
-  primary: MarketplaceRouteLocationContext | null,
-  fallback: MarketplaceRouteLocationContext | null
-): MarketplaceRouteLocationContext | null {
-  if (!primary && !fallback) {
-    return null;
-  }
+const MARKETPLACE_SELLER_SIGNAL_WAIT_MS = 15_000;
+const SELLER_SCROLL_PROGRESS_WAIT_MS = 2_000;
+const MAX_STALLED_SELLER_SCROLLS = 2;
+
+interface MarketplaceSellerProgressSnapshot {
+  itemLinkCount: number;
+  scrollHeight: number;
+}
+
+async function waitForMarketplaceSellerSignals(page: Page, timeoutMs: number): Promise<void> {
+  await page.waitForFunction(
+    () => {
+      const memberSince = Array.from(document.querySelectorAll('span')).some((element) =>
+        /^Joined Facebook in /i.test((element.textContent ?? '').trim())
+      );
+      const inventoryLink = Array.from(document.querySelectorAll('a')).some((anchor) =>
+        (anchor.getAttribute('href') ?? '').includes('/marketplace/item/')
+      );
+      const embeddedPayload = Boolean(document.querySelector('script[data-sjs]'));
+      return memberSince || inventoryLink || embeddedPayload;
+    },
+    { timeout: Math.min(timeoutMs, MARKETPLACE_SELLER_SIGNAL_WAIT_MS) }
+  );
+}
+
+async function getMarketplaceSellerProgressSnapshot(
+  page: Page
+): Promise<MarketplaceSellerProgressSnapshot> {
+  const [itemLinkCount, scrollHeight] = await Promise.all([
+    countMarketplaceItemLinks(page).catch(() => 0),
+    page.evaluate(() => document.body.scrollHeight).catch(() => 0)
+  ]);
 
   return {
-    radius: primary?.radius ?? fallback?.radius ?? null,
-    latitude: primary?.latitude ?? fallback?.latitude ?? null,
-    longitude: primary?.longitude ?? fallback?.longitude ?? null,
-    vanityPageId:
-      (primary?.vanityPageId && /^\d+$/.test(primary.vanityPageId) ? primary.vanityPageId : null) ??
-      (fallback?.vanityPageId && /^\d+$/.test(fallback.vanityPageId) ? fallback.vanityPageId : null) ??
-      null
+    itemLinkCount,
+    scrollHeight
   };
+}
+
+async function waitForMarketplaceSellerProgress(
+  page: Page,
+  previous: MarketplaceSellerProgressSnapshot,
+  timeoutMs: number
+): Promise<void> {
+  try {
+    await page.waitForFunction(
+      (previousHeight: number, previousItemLinkCount: number) => {
+        const currentItemLinkCount = new Set(
+          Array.from(document.querySelectorAll('a'))
+            .map((anchor) => anchor.getAttribute('href'))
+            .filter((href) => typeof href === 'string' && href.includes('/marketplace/item/'))
+        ).size;
+
+        return document.body.scrollHeight > previousHeight || currentItemLinkCount > previousItemLinkCount;
+      },
+      { timeout: timeoutMs },
+      previous.scrollHeight,
+      previous.itemLinkCount
+    );
+  } catch {
+    // Seller inventory pages often stop loading without an explicit terminal marker.
+  }
+}
+
+async function scrollMarketplaceSellerInventory(
+  page: Page,
+  context: ScraperContext
+): Promise<void> {
+  let stalledScrolls = 0;
+  let previous = await getMarketplaceSellerProgressSnapshot(page);
+  const maxScrollAttempts = Math.max(3, Math.ceil(context.maxScrolls / 2));
+
+  for (let index = 0; index < maxScrollAttempts; index += 1) {
+    await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 1200)));
+    await waitForMarketplaceSellerProgress(page, previous, Math.max(context.scrollDelayMs, SELLER_SCROLL_PROGRESS_WAIT_MS));
+
+    const current = await getMarketplaceSellerProgressSnapshot(page);
+    const hasProgress = current.itemLinkCount > previous.itemLinkCount || current.scrollHeight > previous.scrollHeight;
+
+    if (!hasProgress) {
+      stalledScrolls += 1;
+      if (stalledScrolls >= MAX_STALLED_SELLER_SCROLLS) {
+        break;
+      }
+    } else {
+      stalledScrolls = 0;
+    }
+
+    previous = current;
+  }
 }
 
 export async function extractMarketplaceSeller(
@@ -50,70 +128,87 @@ export async function extractMarketplaceSeller(
 
   try {
     return await session.withPage(async (page) => {
-      const capture = new GraphQLCapture();
       const routeCapture = new RouteDefinitionCapture();
-      await capture.attach(page);
       await routeCapture.attach(page);
+      const disableRequestFiltering = await enableMarketplaceRequestFiltering(page);
 
-      await page.goto(url, { waitUntil: 'networkidle2' });
-      for (let index = 0; index < Math.max(3, context.maxScrolls / 2); index += 1) {
-        await page.evaluate(() => window.scrollBy(0, 800));
-        await sleep(context.scrollDelayMs);
-      }
+      try {
+        await page.goto(url, { waitUntil: 'domcontentloaded' });
+        await waitForMarketplaceSellerSignals(page, context.timeoutMs);
 
-      const html = await page.content();
-      const embeddedDocument = createEmbeddedDocumentFragment(page.url(), html);
-      await capture.detach(page);
-      await routeCapture.detach(page);
-      const graphqlFragments = capture.registry.all();
-      const parserFragments = embeddedDocument ? [...graphqlFragments, embeddedDocument] : graphqlFragments;
-      const graphqlSeller = parseMarketplaceSellerFragments(parserFragments, sellerId);
-      const domSeller = await parseMarketplaceSellerFromDom(page, sellerId);
-      const routes = routeCapture.records.flatMap((record) => record.routes);
-      const routeDefinition = selectRouteDefinition(routes, /CometMarketplaceSellerProfileDialogRoute/);
-      const browseRouteDefinition = selectRouteDefinition(
-        routes,
-        /CometMarketplace(?:HomeRoute|SearchRoute|InboxRoute|NotificationsNavRoute|StatusRoute)|MarketplaceBuyingActivityRoute|MarketplaceSellingUIMRoute/
-      );
-      const queryContexts = extractMarketplaceQueryContextsFromHtml(html);
-      const sellerQueries = queryContexts.filter(
-        (query) => query.sellerId === sellerId && /MarketplaceSellerProfile/i.test(query.queryName)
-      );
-      const buyLocation = mergeLocationContext(
-        queryContexts.find((query) => query.buyLocation && /Marketplace/i.test(query.queryName))?.buyLocation ?? null,
-        browseRouteDefinition?.location ?? null
-      );
-      const seller = normalizeMarketplaceSeller({
-        sellerId,
-        seller: {
-          id: graphqlSeller.seller.id ?? domSeller.seller.id,
-          name: graphqlSeller.seller.name ?? domSeller.seller.name,
-          about: graphqlSeller.seller.about ?? domSeller.seller.about,
-          rating: graphqlSeller.seller.rating ?? domSeller.seller.rating,
-          reviewCount: graphqlSeller.seller.reviewCount ?? domSeller.seller.reviewCount,
-          location: graphqlSeller.seller.location ?? domSeller.seller.location,
-          memberSince: graphqlSeller.seller.memberSince ?? domSeller.seller.memberSince
-        },
-        context: {
-          routeName: routeDefinition?.canonicalRouteName ?? null,
-          routeLocation: routeDefinition?.location ?? null,
-          buyLocation,
-          queryNames: [...new Set(sellerQueries.map((query) => query.queryName))],
-          sellerId: sellerQueries.find((query) => query.sellerId)?.sellerId ?? sellerId
-        },
-        listings: graphqlSeller.listings.length > 0 ? graphqlSeller.listings : domSeller.listings,
-        scrapedAt: new Date().toISOString()
-      });
+        let html = await page.content();
+        let embeddedDocument = createEmbeddedDocumentFragment(page.url(), html);
+        let structuredFragments = embeddedDocument ? [embeddedDocument] : [];
+        let structuredSeller = parseMarketplaceSellerFragments(structuredFragments, sellerId);
+        let scrolledInventory = false;
 
-      return {
-        data: seller,
-        artifacts: {
-          graphql_summary: summarizeMarketplaceGraphqlFragments(graphqlFragments),
-          embedded_document_summary: embeddedDocument ? summarizeEmbeddedMarketplaceSeller([embeddedDocument]) : null,
-          route_definitions_summary: summarizeRouteDefinitions(routeCapture.records),
-          dom_seller: domSeller
+        if (structuredSeller.listings.length === 0) {
+          await scrollMarketplaceSellerInventory(page, context);
+          scrolledInventory = true;
+          html = await page.content();
+          embeddedDocument = createEmbeddedDocumentFragment(page.url(), html);
+          structuredFragments = embeddedDocument ? [embeddedDocument] : [];
+          structuredSeller = parseMarketplaceSellerFragments(structuredFragments, sellerId);
         }
-      };
+
+        const domSeller = await parseMarketplaceSellerFromDom(page, sellerId);
+        const routes = routeCapture.records.flatMap((record) => record.routes);
+        const routeDefinition = selectRouteDefinition(routes, /CometMarketplaceSellerProfileDialogRoute/);
+        const browseRouteDefinition = selectRouteDefinition(
+          routes,
+          /CometMarketplace(?:HomeRoute|SearchRoute|InboxRoute|NotificationsNavRoute|StatusRoute)|MarketplaceBuyingActivityRoute|MarketplaceSellingUIMRoute/
+        );
+        const queryContexts = extractMarketplaceQueryContextsFromHtml(html);
+        const sellerQueries = queryContexts.filter(
+          (query) => query.sellerId === sellerId && /MarketplaceSellerProfile/i.test(query.queryName)
+        );
+        const buyLocation = mergeMarketplaceLocationContext(
+          queryContexts.find((query) => query.buyLocation && /Marketplace/i.test(query.queryName))?.buyLocation ?? null,
+          browseRouteDefinition?.location ?? null
+        );
+        const seller = normalizeMarketplaceSeller({
+          sellerId,
+          seller: {
+            id: structuredSeller.seller.id ?? domSeller.seller.id,
+            name: structuredSeller.seller.name ?? domSeller.seller.name,
+            about: structuredSeller.seller.about ?? domSeller.seller.about,
+            rating: structuredSeller.seller.rating ?? domSeller.seller.rating,
+            reviewCount: structuredSeller.seller.reviewCount ?? domSeller.seller.reviewCount,
+            location: structuredSeller.seller.location ?? domSeller.seller.location,
+            memberSince: structuredSeller.seller.memberSince ?? domSeller.seller.memberSince
+          },
+          context: {
+            routeName: routeDefinition?.canonicalRouteName ?? null,
+            routeLocation: routeDefinition?.location ?? null,
+            buyLocation,
+            queryNames: [...new Set(sellerQueries.map((query) => query.queryName))],
+            sellerId: sellerQueries.find((query) => query.sellerId)?.sellerId ?? sellerId
+          },
+          listings: structuredSeller.listings.length > 0 ? structuredSeller.listings : domSeller.listings,
+          scrapedAt: new Date().toISOString()
+        });
+
+        return {
+          data: seller,
+          artifacts: {
+            embedded_document_summary: embeddedDocument ? summarizeEmbeddedMarketplaceSeller([embeddedDocument]) : null,
+            route_definitions_summary: summarizeRouteDefinitions(routeCapture.records),
+            collection_stats: {
+              scrolledInventory,
+              usedEmbeddedDocument: Boolean(embeddedDocument),
+              usedStructuredInventory: structuredSeller.listings.length > 0,
+              usedDomInventoryFallback: structuredSeller.listings.length === 0,
+              structuredInventoryCount: structuredSeller.listings.length,
+              domInventoryCount: domSeller.listings.length,
+              blockedResourceTypes: ['image', 'media', 'font']
+            },
+            dom_seller_summary: summarizeDomMarketplaceSeller(domSeller)
+          }
+        };
+      } finally {
+        await routeCapture.detach(page).catch(() => undefined);
+        await disableRequestFiltering().catch(() => undefined);
+      }
     });
   } finally {
     await chrome.disconnect();

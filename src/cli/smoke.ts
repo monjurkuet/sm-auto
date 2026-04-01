@@ -11,7 +11,19 @@ import { extractMarketplaceSearch } from '../extractors/marketplace_search_extra
 import { extractMarketplaceSeller } from '../extractors/marketplace_seller_extractor';
 import { extractPageInfo } from '../extractors/page_info_extractor';
 import { extractPagePosts } from '../extractors/page_posts_extractor';
-import { createScraperContext } from '../core/scraper_context';
+import { createChildScraperContext, createScraperContext } from '../core/scraper_context';
+import {
+  createMarketplaceListingPersistence,
+  createMarketplaceSearchPersistence,
+  createMarketplaceSellerPersistence,
+  createPageInfoPersistence,
+  createPagePostsPersistence
+} from '../storage/postgres/persistence';
+import {
+  buildMarketplaceListingUrl,
+  buildMarketplaceSearchUrl,
+  buildMarketplaceSellerUrl
+} from '../routes/marketplace_routes';
 
 async function main(): Promise<void> {
   const args = yargs(hideBin(process.argv))
@@ -23,6 +35,7 @@ async function main(): Promise<void> {
     .option('chrome-port', { type: 'number', default: 9222 })
     .option('output-dir', { type: 'string', default: './output/smoke' })
     .option('include-artifacts', { type: 'boolean', default: true })
+    .option('persist-db', { type: 'boolean', default: true })
     .option('timeout-ms', { type: 'number', default: 90_000 })
     .option('max-scrolls', { type: 'number', default: 8 })
     .option('scroll-delay-ms', { type: 'number', default: 2000 })
@@ -32,34 +45,30 @@ async function main(): Promise<void> {
     chromePort: args.chromePort,
     outputDir: args.outputDir,
     includeArtifacts: args.includeArtifacts,
+    persistDb: args.persistDb,
     timeoutMs: args.timeoutMs,
     maxScrolls: args.maxScrolls,
     scrollDelayMs: args.scrollDelayMs
   });
 
-  const withDir = (name: string) =>
-    createScraperContext({
-      chromePort: baseContext.chromePort,
-      outputDir: path.join(baseContext.outputDir, name),
-      includeArtifacts: baseContext.includeArtifacts,
-      timeoutMs: baseContext.timeoutMs,
-      maxScrolls: baseContext.maxScrolls,
-      scrollDelayMs: baseContext.scrollDelayMs
-    });
+  const withDir = (name: string) => createChildScraperContext(baseContext, path.join(baseContext.outputDir, name));
 
   await runScrapeJob(withDir('page_info'), 'page-info', 'page_info.json', () =>
-    extractPageInfo(withDir('page_info'), args.pageUrl)
+    extractPageInfo(withDir('page_info'), args.pageUrl),
+    createPageInfoPersistence(args.pageUrl)
   );
 
   await runScrapeJob(withDir('page_posts'), 'page-posts', 'page_posts.json', () =>
-    extractPagePosts(withDir('page_posts'), args.pageUrl)
+    extractPagePosts(withDir('page_posts'), args.pageUrl),
+    createPagePostsPersistence(args.pageUrl)
   );
 
   const searchResult = await runScrapeJob(
     withDir('marketplace_search'),
     'marketplace-search',
     'marketplace_search.json',
-    () => extractMarketplaceSearch(withDir('marketplace_search'), args.query, args.location)
+    () => extractMarketplaceSearch(withDir('marketplace_search'), args.query, args.location),
+    createMarketplaceSearchPersistence(args.query, args.location, buildMarketplaceSearchUrl(args.query, args.location))
   );
 
   const listingId = args.listingId ?? searchResult.data.listings[0]?.id;
@@ -74,11 +83,13 @@ async function main(): Promise<void> {
   }
 
   await runScrapeJob(withDir('marketplace_listing'), 'marketplace-listing', 'marketplace_listing.json', () =>
-    extractMarketplaceListing(withDir('marketplace_listing'), listingId)
+    extractMarketplaceListing(withDir('marketplace_listing'), listingId),
+    createMarketplaceListingPersistence(listingId, buildMarketplaceListingUrl(listingId))
   );
 
   await runScrapeJob(withDir('marketplace_seller'), 'marketplace-seller', 'marketplace_seller.json', () =>
-    extractMarketplaceSeller(withDir('marketplace_seller'), sellerId)
+    extractMarketplaceSeller(withDir('marketplace_seller'), sellerId),
+    createMarketplaceSellerPersistence(sellerId, buildMarketplaceSellerUrl(sellerId))
   );
 }
 

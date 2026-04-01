@@ -16,7 +16,11 @@ import {
   parseBulkRouteDefinitionsBody,
   selectRouteDefinition
 } from '../src/parsers/embedded/marketplace_embedded_parser';
-import { parseTimelineFragments, parseTimelineIdentity } from '../src/parsers/graphql/timeline_parser';
+import {
+  collectTimelineFragments,
+  parseTimelineFragments,
+  parseTimelineIdentity
+} from '../src/parsers/graphql/timeline_parser';
 import type { GraphQLFragment } from '../src/types/contracts';
 
 function loadFixture(name: string): GraphQLFragment[] {
@@ -42,6 +46,51 @@ test('parseMarketplaceSearchFragments extracts listing cards', () => {
   assert.equal(listings[0]?.id, 'listing-1');
   assert.equal(listings[0]?.seller.name, 'Seller One');
   assert.equal(listings[0]?.deliveryOptions.length, 2);
+});
+
+test('collectTimelineFragments keeps timeline responses and drops unrelated graphql noise', () => {
+  const fragments: GraphQLFragment[] = [
+    {
+      url: 'https://www.facebook.com/api/graphql/',
+      status: 200,
+      timestamp: '2026-03-15T00:00:00.000Z',
+      request: {
+        friendlyName: 'ProfileCometTimelineFeedQuery',
+        rawFields: {}
+      },
+      fragments: [
+        {
+          data: {
+            node: {
+              __typename: 'Story',
+              id: 'story-1'
+            }
+          }
+        }
+      ]
+    },
+    {
+      url: 'https://www.facebook.com/api/graphql/',
+      status: 200,
+      timestamp: '2026-03-15T00:00:00.000Z',
+      request: {
+        friendlyName: 'CometSearchBootstrapKeywordsDataSourceQuery',
+        rawFields: {}
+      },
+      fragments: [
+        {
+          data: {
+            search_keywords: []
+          }
+        }
+      ]
+    }
+  ];
+
+  const relevant = collectTimelineFragments(fragments);
+
+  assert.equal(relevant.length, 1);
+  assert.equal(relevant[0]?.request.friendlyName, 'ProfileCometTimelineFeedQuery');
 });
 
 test('parseMarketplaceSearchFragments prefers marketplace_search scoped payloads over unrelated embedded items', () => {
@@ -107,6 +156,37 @@ test('parseMarketplaceSellerFragments extracts seller profile payload', () => {
   assert.equal(seller.seller.id, 'seller-1');
   assert.equal(seller.seller.rating, 4.8);
   assert.equal(seller.seller.reviewCount, 37);
+});
+
+test('parseMarketplaceSellerFragments normalizes zero rating stats to null', () => {
+  const seller = parseMarketplaceSellerFragments(
+    [
+      {
+        url: 'embedded-html',
+        status: 200,
+        timestamp: '2026-03-15T00:00:00.000Z',
+        request: { friendlyName: 'embedded_document', rawFields: {} },
+        fragments: [
+          {
+            data: {
+              marketplace_seller_profile: {
+                id: 'seller-1',
+                name: 'Seller One',
+                rating: {
+                  average_rating: 0,
+                  review_count: 0
+                }
+              }
+            }
+          }
+        ]
+      }
+    ],
+    'seller-1'
+  );
+
+  assert.equal(seller.seller.rating, null);
+  assert.equal(seller.seller.reviewCount, null);
 });
 
 test('embedded seller inventory payloads are extracted from document html', () => {

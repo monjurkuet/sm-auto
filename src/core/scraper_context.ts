@@ -26,3 +26,16 @@ export function createScraperContext(options: ScraperRuntimeOptions = {}): Scrap
     logger: new ConsoleLogger()
   };
 }
+
+export function createChildScraperContext(parent: ScraperContext, outputDir: string): ScraperContext {
+  return {
+    chromePort: parent.chromePort,
+    timeoutMs: parent.timeoutMs,
+    maxScrolls: parent.maxScrolls,
+    scrollDelayMs: parent.scrollDelayMs,
+    outputDir: path.resolve(outputDir),
+    includeArtifacts: parent.includeArtifacts,
+    persistDb: parent.persistDb,
+    logger: parent.logger
+  };
+}

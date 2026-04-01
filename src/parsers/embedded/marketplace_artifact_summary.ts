@@ -1,5 +1,7 @@
 import type { GraphQLFragment } from '../../types/contracts';
 import type { RouteDefinitionCaptureRecord } from '../../capture/route_definition_capture';
+import type { MarketplaceSellerDomProfile } from '../dom/marketplace_dom_parser';
+import type { MarketplaceListing } from '../../types/contracts';
 import {
   parseMarketplaceListingFragments,
   parseMarketplaceSearchFragments,
@@ -105,6 +107,32 @@ export function summarizeEmbeddedMarketplaceSeller(fragments: GraphQLFragment[])
       title: listing.title,
       price: listing.price,
       seller: listing.seller,
+      location: listing.location
+    }))
+  };
+}
+
+export function summarizeDomMarketplaceListing(listing: MarketplaceListing): Record<string, unknown> {
+  return {
+    id: listing.id,
+    title: listing.title,
+    price: listing.price,
+    seller: listing.seller,
+    location: listing.location,
+    imageCount: listing.images.length,
+    availability: listing.availability,
+    deliveryOptions: listing.deliveryOptions
+  };
+}
+
+export function summarizeDomMarketplaceSeller(profile: MarketplaceSellerDomProfile): Record<string, unknown> {
+  return {
+    seller: profile.seller,
+    listingCount: profile.listings.length,
+    sampleListings: profile.listings.slice(0, 10).map((listing) => ({
+      id: listing.id,
+      title: listing.title,
+      price: listing.price,
       location: listing.location
     }))
   };

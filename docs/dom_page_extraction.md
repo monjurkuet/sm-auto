@@ -21,13 +21,18 @@ Basic page information is available on the main profile page:
 Detailed contact information requires navigating to this endpoint:
 - **phone** - in "Phone" section (format: "09609-016810")
 - **email** - in "Email" section (format: "info@ryans.com")
-- **social media handles** - from anchor tags with platform URLs:
+- **social media handles** - from anchor tags with platform URLs, stored separately from generic websites:
   - Instagram: `https://instagram.com/@handle`
   - TikTok: `https://tiktok.com/@handle`
   - Tumblr: `https://tumblr.com/handle`
   - Pinterest: `https://pinterest.com/handle`
   - YouTube: `https://youtube.com/@handle`
   - X (Twitter): `https://x.com/handle`
+
+### 3. Basic Info Page (`/username/directory_basic_info`)
+Creation date and labeled location/category fallbacks require navigating to this endpoint:
+- **creation date** - typically under "Page created" / "Created"
+- **location fallback** - from labeled location rows when embedded profile tile data is absent
 
 ## Differences: Profiles vs Pages
 
@@ -95,7 +100,7 @@ const match = text.match(/([\d.KM]+)\s*followers?\s*•?\s*([\d.KM]*)\s*followin
 
 ## Implementation Notes
 
-1. **Two-page navigation required**: Main page + directory_contact_info page
+1. **Three-page navigation required**: Main page + directory_contact_info + directory_basic_info
 2. **No LLM needed**: Simple DOM parsing works reliably
 3. **Anchor tag parsing**: Social media requires parsing `<a>` tag hrefs
-4. **Platform detection**: Check href for platform-specific domains
+4. **Platform detection**: Check href for platform-specific domains and exclude those URLs from the generic website list

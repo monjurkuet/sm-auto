@@ -6,27 +6,26 @@ import { upsertFacebookPageStub } from './page_repository';
 import { insertArtifacts, toIsoTimestamp, toJsonb } from './persistence_utils';
 
 export async function findFacebookPostRecordId(client: PoolClient, post: PagePost): Promise<number | null> {
-  const lookups: Array<[string, string | null]> = [
-    ['external_post_id', post.postId],
-    ['story_id', post.id],
-    ['permalink', post.permalink]
-  ];
+  const existing = await client.query<{ id: number }>(
+    `
+      SELECT id
+      FROM scraper.facebook_posts
+      WHERE ($1::text IS NOT NULL AND external_post_id = $1)
+         OR ($2::text IS NOT NULL AND story_id = $2)
+         OR ($3::text IS NOT NULL AND permalink = $3)
+      ORDER BY
+        CASE
+          WHEN $1::text IS NOT NULL AND external_post_id = $1 THEN 1
+          WHEN $2::text IS NOT NULL AND story_id = $2 THEN 2
+          WHEN $3::text IS NOT NULL AND permalink = $3 THEN 3
+          ELSE 4
+        END
+      LIMIT 1
+    `,
+    [post.postId, post.id, post.permalink]
+  );
 
-  for (const [column, value] of lookups) {
-    if (!value) {
-      continue;
-    }
-
-    const existing = await client.query<{ id: number }>(
-      `SELECT id FROM scraper.facebook_posts WHERE ${column} = $1 LIMIT 1`,
-      [value]
-    );
-    if (existing.rows[0]?.id) {
-      return existing.rows[0].id;
-    }
-  }
-
-  return null;
+  return existing.rows[0]?.id ?? null;
 }
 
 export async function upsertFacebookPost(client: PoolClient, pageId: string | null, post: PagePost): Promise<number> {
@@ -134,23 +133,32 @@ export async function persistPagePostsSurface(
       ...post.links.map((value, position) => ({ type: 'link' as const, value, position }))
     ];
 
-    for (const tag of tags) {
+    if (tags.length > 0) {
+      const tagTypes = tags.map((tag) => tag.type);
+      const tagValues = tags.map((tag) => tag.value);
+      const tagPositions = tags.map((tag) => tag.position);
+
       await client.query(
         `
-          INSERT INTO scraper.facebook_post_tags (
-            post_scrape_id,
-            tag_type,
-            tag_value,
-            position
-          ) VALUES ($1, $2, $3, $4)
+          INSERT INTO scraper.facebook_post_tags (post_scrape_id, tag_type, tag_value, position)
+          SELECT $1, value_type, value_text, value_position
+          FROM unnest($2::text[], $3::text[], $4::integer[]) AS payload(value_type, value_text, value_position)
           ON CONFLICT (post_scrape_id, tag_type, tag_value, position)
           DO NOTHING
         `,
-        [postScrapeId, tag.type, tag.value, tag.position]
+        [postScrapeId, tagTypes, tagValues, tagPositions]
       );
     }
 
-    for (const [mediaIndex, media] of post.media.entries()) {
+    if (post.media.length > 0) {
+      const mediaPositions = post.media.map((_, mediaIndex) => mediaIndex);
+      const mediaTypes = post.media.map((media) => media.type);
+      const mediaIds = post.media.map((media) => media.id);
+      const mediaUrls = post.media.map((media) => media.url);
+      const mediaWidths = post.media.map((media) => media.width ?? null);
+      const mediaHeights = post.media.map((media) => media.height ?? null);
+      const mediaDurations = post.media.map((media) => media.durationSec ?? null);
+
       await client.query(
         `
           INSERT INTO scraper.facebook_post_media (
@@ -162,7 +170,33 @@ export async function persistPagePostsSurface(
             width,
             height,
             duration_sec
-          ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8)
+          )
+          SELECT
+            $1,
+            media_position,
+            media_type,
+            media_external_id,
+            media_url,
+            media_width,
+            media_height,
+            media_duration
+          FROM unnest(
+            $2::integer[],
+            $3::text[],
+            $4::text[],
+            $5::text[],
+            $6::integer[],
+            $7::integer[],
+            $8::numeric[]
+          ) AS payload(
+            media_position,
+            media_type,
+            media_external_id,
+            media_url,
+            media_width,
+            media_height,
+            media_duration
+          )
           ON CONFLICT (post_scrape_id, position)
           DO UPDATE SET
             media_type = EXCLUDED.media_type,
@@ -174,13 +208,13 @@ export async function persistPagePostsSurface(
         `,
         [
           postScrapeId,
-          mediaIndex,
-          media.type,
-          media.id,
-          media.url,
-          media.width ?? null,
-          media.height ?? null,
-          media.durationSec ?? null
+          mediaPositions,
+          mediaTypes,
+          mediaIds,
+          mediaUrls,
+          mediaWidths,
+          mediaHeights,
+          mediaDurations
         ]
       );
     }

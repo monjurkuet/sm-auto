@@ -189,19 +189,21 @@ function normalizeSellerNode(
   const ratingStats = asRecord(asRecord(node.marketplace_ratings_stats_by_role_v2)?.seller_stats) ?? {};
   const ratingCombined = asRecord(asRecord(node.marketplace_ratings_stats_by_role_v2)?.seller_buyer_combined) ?? {};
   const locationNode = asRecord(node.location) ?? {};
+  const rawRating =
+    getNumber(ratingNode.average_rating) ??
+    getNumber(ratingStats.five_star_ratings_average) ??
+    getNumber(ratingCombined.five_star_ratings_average);
+  const rawReviewCount =
+    getNumber(ratingNode.review_count) ??
+    getNumber(ratingStats.five_star_total_rating_count_by_role) ??
+    getNumber(ratingCombined.five_star_total_rating_count_by_role);
 
   return {
     id: getString(node.id) ?? getString(node.user_id) ?? fallbackSellerId,
     name: getString(node.name),
     about: getString(node.about),
-    rating:
-      getNumber(ratingNode.average_rating) ??
-      getNumber(ratingStats.five_star_ratings_average) ??
-      getNumber(ratingCombined.five_star_ratings_average),
-    reviewCount:
-      getNumber(ratingNode.review_count) ??
-      getNumber(ratingStats.five_star_total_rating_count_by_role) ??
-      getNumber(ratingCombined.five_star_total_rating_count_by_role),
+    rating: rawRating && rawRating > 0 ? rawRating : null,
+    reviewCount: rawReviewCount && rawReviewCount > 0 ? rawReviewCount : null,
     location: getString(locationNode.name),
     memberSince: getString(node.created_time) ?? getNumber(node.created_time) ?? getNumber(node.join_time)
   };

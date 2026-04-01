@@ -6,6 +6,43 @@ export interface TimelineIdentity {
   pageName: string | null;
 }
 
+function payloadHasTimelinePath(payload: unknown): boolean {
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
+
+  const record = payload as Record<string, unknown>;
+  const path = Array.isArray(record.path) ? record.path : [];
+  return path.some((segment) => segment === 'timeline_list_feed_units' || segment === 'feed_units');
+}
+
+function payloadHasStoryNode(payload: unknown): boolean {
+  let hasStory = false;
+
+  deepVisit(payload, (node) => {
+    if (hasStory) {
+      return;
+    }
+
+    if (node.__typename === 'Story' || node.__isFeedUnit === 'Story') {
+      hasStory = true;
+    }
+  });
+
+  return hasStory;
+}
+
+export function collectTimelineFragments(fragments: GraphQLFragment[]): GraphQLFragment[] {
+  return fragments.filter((fragment) => {
+    const friendlyName = fragment.request.friendlyName ?? '';
+    if (/ProfileCometTimeline|TimelineFeed|TimelineListView|FeedQuery/i.test(friendlyName)) {
+      return true;
+    }
+
+    return fragment.fragments.some((payload) => payloadHasTimelinePath(payload) || payloadHasStoryNode(payload));
+  });
+}
+
 function normalizeStory(node: Record<string, unknown>): PagePost {
   const authorNode = ((node.actors as unknown[])?.[0] ??
     (node.feedback as Record<string, unknown> | undefined)?.owning_profile ??

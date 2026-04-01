@@ -32,5 +32,5 @@ chrome.txt
 .cursor
 .gemini
 .agent
-.agent/
-.agent/
+.agent
+.codex

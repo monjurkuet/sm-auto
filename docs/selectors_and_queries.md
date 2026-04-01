@@ -8,6 +8,6 @@ This document should track:
 
 Initial known targets:
 - Facebook page timeline: `ProfileCometTimelineFeedRefetchQuery`
-- Facebook page transparency: route `/about_profile_transparency`
-- Facebook page contact info: route `/about_contact_and_basic_info`
+- Facebook page contact info: route `/directory_contact_info`
+- Facebook page basic info: route `/directory_basic_info`
 - Marketplace search payloads containing `marketplace_search`

@@ -6,7 +6,7 @@ export interface Logger {
 
 export class ConsoleLogger implements Logger {
   info(message: string, details?: unknown): void {
-    console.log(`[INFO] ${message}`, details ?? '');
+    console.info(`[INFO] ${message}`, details ?? '');
   }
 
   warn(message: string, details?: unknown): void {

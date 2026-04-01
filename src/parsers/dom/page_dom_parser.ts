@@ -8,6 +8,10 @@ export interface PageDomSnapshot {
   links: Array<{ href: string | null; text: string | null }>;
 }
 
+const LOCATION_CONTROL_LABEL = /^(address|map|directions|edit|save|cancel|see all|see more)$/i;
+const LOCATION_STATUS_LABEL = /^(open now|closed now|hours|temporarily closed)$/i;
+const GENERIC_UI_LABEL = /^(about|intro|contact info|basic info|details|categories|location)$/i;
+
 function cleanFacebookTitle(title: string): string {
   return title
     .replace(/^\(\d+\)\s*/, '')
@@ -36,12 +40,14 @@ export async function snapshotPageDom(page: import('puppeteer-core').Page): Prom
 }
 
 export function parseContactInfoFromDom(snapshot: PageDomSnapshot): PageContactInfo {
+  const socialMedia = parseSocialMedia(snapshot);
+  const socialUrls = new Set(socialMedia.map((link) => link.url));
   const info: PageContactInfo = {
     phones: [],
     emails: [],
     websites: [],
     addresses: [],
-    socialMedia: parseSocialMedia(snapshot)
+    socialMedia
   };
 
   const emailRegex = /\b[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}\b/;
@@ -51,12 +57,17 @@ export function parseContactInfoFromDom(snapshot: PageDomSnapshot): PageContactI
     if (!link.href) {
       continue;
     }
+    const normalizedHref = resolveOutboundUrl(link.href);
     if (link.href.startsWith('mailto:')) {
       info.emails.push(link.href.replace(/^mailto:/, ''));
     } else if (link.href.startsWith('tel:')) {
       info.phones.push(link.href.replace(/^tel:/, ''));
-    } else if (/^https?:\/\//.test(link.href) && !/facebook\.com|fb\.com/.test(link.href)) {
-      info.websites.push(link.href);
+    } else if (
+      /^https?:\/\//.test(normalizedHref) &&
+      !/facebook\.com|fb\.com/.test(normalizedHref) &&
+      !socialUrls.has(normalizedHref)
+    ) {
+      info.websites.push(normalizedHref);
     }
   }
 
@@ -114,7 +125,7 @@ export function parseFollowerCount(snapshot: PageDomSnapshot): number | null {
 
 function extractHandleFromUrl(url: string): string {
   try {
-    const urlObj = new URL(url);
+    const urlObj = new URL(resolveOutboundUrl(url));
     const path = urlObj.pathname.replace(/^\//, '').replace(/\/$/, '');
     if (path) {
       return path;
@@ -125,26 +136,58 @@ function extractHandleFromUrl(url: string): string {
   }
 }
 
+function resolveOutboundUrl(url: string): string {
+  let resolvedUrl = url;
+
+  try {
+    const parsed = new URL(url);
+    if ((parsed.hostname === 'l.facebook.com' || parsed.hostname === 'lm.facebook.com') && parsed.pathname === '/l.php') {
+      resolvedUrl = parsed.searchParams.get('u') ?? url;
+    }
+  } catch {
+    return url;
+  }
+
+  try {
+    const parsedResolvedUrl = new URL(resolvedUrl);
+    parsedResolvedUrl.searchParams.delete('fbclid');
+    return parsedResolvedUrl.toString();
+  } catch {
+    return resolvedUrl;
+  }
+}
+
+function detectSocialPlatform(url: string): SocialMediaLink['platform'] | null {
+  const normalized = resolveOutboundUrl(url);
+  if (normalized.includes('instagram.com')) return 'instagram';
+  if (normalized.includes('tiktok.com')) return 'tiktok';
+  if (normalized.includes('tumblr.com')) return 'tumblr';
+  if (normalized.includes('pinterest.com')) return 'pinterest';
+  if (normalized.includes('youtube.com')) return 'youtube';
+  if (normalized.includes('x.com') || normalized.includes('twitter.com')) return 'x';
+  return null;
+}
+
 export function parseSocialMedia(snapshot: PageDomSnapshot): SocialMediaLink[] {
   const socialMedia: SocialMediaLink[] = [];
   const seen = new Set<string>();
 
   for (const link of snapshot.links) {
-    if (!link.href) continue;
+    if (!link.href) {
+      continue;
+    }
 
-    let platform: SocialMediaLink['platform'] | null = null;
+    const platform = detectSocialPlatform(link.href);
 
-    if (link.href.includes('instagram.com')) platform = 'instagram';
-    else if (link.href.includes('tiktok.com')) platform = 'tiktok';
-    else if (link.href.includes('tumblr.com')) platform = 'tumblr';
-    else if (link.href.includes('pinterest.com')) platform = 'pinterest';
-    else if (link.href.includes('youtube.com')) platform = 'youtube';
-    else if (link.href.includes('x.com') || link.href.includes('twitter.com')) platform = 'x';
-
-    if (platform && !seen.has(platform)) {
-      const handle = extractHandleFromUrl(link.href);
-      socialMedia.push({ platform, handle, url: link.href });
-      seen.add(platform);
+    if (platform) {
+      const normalizedUrl = resolveOutboundUrl(link.href);
+      const key = `${platform}:${normalizedUrl}`;
+      if (seen.has(key)) {
+        continue;
+      }
+      const handle = extractHandleFromUrl(normalizedUrl);
+      socialMedia.push({ platform, handle, url: normalizedUrl });
+      seen.add(key);
     }
   }
 
@@ -209,42 +252,110 @@ export function parseBio(snapshot: PageDomSnapshot): string | null {
   return null;
 }
 
+function looksLikeLocationValue(value: string): boolean {
+  if (!value || LOCATION_CONTROL_LABEL.test(value) || LOCATION_STATUS_LABEL.test(value) || GENERIC_UI_LABEL.test(value)) {
+    return false;
+  }
+
+  if (/https?:\/\/|www\.|@/i.test(value)) {
+    return false;
+  }
+
+  if (/followers?\b|following\b/i.test(value) || /^\d+[\s,]*(likes|people|reviews?)\b/i.test(value)) {
+    return false;
+  }
+
+  if (!/\p{L}/u.test(value)) {
+    return false;
+  }
+
+  const separatorCount = (value.match(/\s[·•]\s/g) ?? []).length;
+  const wordCount = value.trim().split(/\s+/).length;
+  const narrativeWordCount = (
+    value.match(/\b(with|for|your|our|their|offers?|help|find|ideal|solution|leading|largest|available|upgrade|browse|support|connected)\b/gi) ?? []
+  ).length;
+
+  if (/[.!?]/.test(value) && separatorCount === 0) {
+    return false;
+  }
+
+  if (wordCount > 14 && separatorCount === 0 && !/\d+\s+\p{L}/u.test(value)) {
+    return false;
+  }
+
+  if (narrativeWordCount >= 2 && separatorCount === 0) {
+    return false;
+  }
+
+  return value.includes(',') || value.includes('·') || /\d+\s+\p{L}/u.test(value);
+}
+
+function normalizeLocationValue(value: string): string {
+  return value.split(' · ')[0]?.trim() ?? value.trim();
+}
+
+function scoreLocationCandidate(value: string): number {
+  const separatorCount = (value.match(/\s[·•]\s/g) ?? []).length;
+  const commaCount = (value.match(/,/g) ?? []).length;
+  const wordCount = value.trim().split(/\s+/).length;
+
+  let score = separatorCount * 5 + Math.min(commaCount, 4);
+
+  if (/\d+\s+\p{L}/u.test(value)) {
+    score += 2;
+  }
+
+  if (wordCount <= 8) {
+    score += 1;
+  }
+
+  return score;
+}
+
 export function parseLocation(snapshot: PageDomSnapshot): string | null {
-  // Look for location label and value in About page
   for (let index = 0; index < snapshot.spans.length; index += 1) {
     const current = snapshot.spans[index] ?? '';
-    // Match "location" label followed by actual location
     if (/^location$/i.test(current)) {
-      const next = snapshot.spans[index + 1] ?? '';
-      // Skip if next is empty or is a UI label
-      if (next && !/^(address|map|directions|edit|save|cancel)$/i.test(next)) {
-        // Only accept if it looks like a location (contains city name or country)
-        if (
-          /^(dhaka|chittagong|chattogram|bangladesh|bangladesh|BD|banani|gulshan|dhanmondi|uttara)/i.test(next) ||
-          /Bangladesh/i.test(next)
-        ) {
-          return next;
+      for (let candidateIndex = index + 1; candidateIndex < snapshot.spans.length; candidateIndex += 1) {
+        const candidate = snapshot.spans[candidateIndex] ?? '';
+        if (!candidate) {
+          continue;
+        }
+        if (looksLikeLocationValue(candidate)) {
+          return normalizeLocationValue(candidate);
+        }
+        if (GENERIC_UI_LABEL.test(candidate)) {
+          break;
         }
       }
     }
   }
 
-  // Alternative: look for Dhaka, Bangladesh patterns
+  let bestCandidate: string | null = null;
+  let bestScore = -1;
+
   for (const span of snapshot.spans) {
-    if (/^(dhaka|chittagong|bangladesh)$/i.test(span) || /Bangladesh,?\s*Bangladesh/i.test(span)) {
-      return span;
-    }
-    // Match "Dhaka, Bangladesh" format
-    const match = span.match(/^([A-Za-z\s]+),\s*(Bangladesh)$/);
-    if (match) {
-      return span;
+    if (looksLikeLocationValue(span)) {
+      const normalized = normalizeLocationValue(span);
+      const score = scoreLocationCandidate(normalized);
+      if (score > bestScore) {
+        bestCandidate = normalized;
+        bestScore = score;
+      }
     }
   }
 
-  return null;
+  return bestCandidate;
 }
 
 export function parseCategory(snapshot: PageDomSnapshot): string | null {
+  for (const span of snapshot.spans) {
+    const pageCategoryMatch = span.match(/^Page\s*[·•]\s*(.+)$/i);
+    if (pageCategoryMatch?.[1]) {
+      return pageCategoryMatch[1].trim();
+    }
+  }
+
   for (let index = 0; index < snapshot.spans.length; index += 1) {
     if (/^categories$/i.test(snapshot.spans[index] ?? '')) {
       const next = snapshot.spans[index + 1] ?? '';
@@ -254,9 +365,7 @@ export function parseCategory(snapshot: PageDomSnapshot): string | null {
     }
   }
 
-  return (
-    snapshot.headings.find((heading) => !/^(about|intro|contact info|basic info|categories)$/i.test(heading)) ?? null
-  );
+  return null;
 }
 
 export function parsePageName(snapshot: PageDomSnapshot): string | null {
@@ -282,6 +391,26 @@ export function parseLabeledValue(snapshot: PageDomSnapshot, labelPattern: RegEx
   for (let index = 1; index < snapshot.spans.length; index += 1) {
     if (labelPattern.test(snapshot.spans[index] ?? '')) {
       return snapshot.spans[index - 1] ?? null;
+    }
+  }
+
+  return null;
+}
+
+export function parseCreationDate(snapshot: PageDomSnapshot): string | null {
+  const labeledValue =
+    parseLabeledValue(snapshot, /^page created$/i) ??
+    parseLabeledValue(snapshot, /^created$/i) ??
+    parseLabeledValue(snapshot, /^creation date$/i);
+
+  if (labeledValue) {
+    return labeledValue;
+  }
+
+  for (const span of snapshot.spans) {
+    const inlineMatch = span.match(/^(?:page created|created|creation date)\s*[:-]?\s*(.+)$/i);
+    if (inlineMatch?.[1]) {
+      return inlineMatch[1].trim();
     }
   }
 

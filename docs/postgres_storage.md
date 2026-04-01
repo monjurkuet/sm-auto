@@ -55,8 +55,9 @@ If those are mixed into one table, either dedupe becomes wrong or history become
 **Key Upsert Rules**
 1. `facebook_pages`
 - key: `page_id`
-- update latest scalar fields and `latest_payload`
-- contact values go into `facebook_page_contacts`
+- update latest scalar fields (`name`, `category`, `followers`, `following`, `bio`, `location_text`, `creation_date_text`) and `latest_payload`
+- generic contact values go into `facebook_page_contacts`
+- structured social links go into `facebook_page_social_links`
 
 2. `facebook_posts`
 - prefer `external_post_id`
@@ -108,6 +109,7 @@ On failure:
 - `scrape_runs`
 - `facebook_pages`
 - `facebook_page_contacts`
+- `facebook_page_social_links`
 - `facebook_page_scrapes`
 - `facebook_page_transparency_history`
 
@@ -139,6 +141,11 @@ On failure:
 - `marketplace_listings`
 - `marketplace_seller_scrapes`
 - `marketplace_seller_scrape_listings`
+
+**Artifacts**
+- page-info, page-posts, and marketplace surfaces now persist summary artifacts only
+- raw DOM snapshots and raw GraphQL bodies are not stored in Postgres by default
+- if deep debugging is needed later, prefer local file artifacts over expanding `scrape_artifacts`
 
 **Tradeoffs**
 - Arrays like hashtags and media are normalized into child tables because they need querying and dedupe.

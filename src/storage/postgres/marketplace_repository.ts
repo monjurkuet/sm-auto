@@ -10,6 +10,193 @@ import type {
 import type { ScrapeRunCompletion } from './persistence_contracts';
 import { compactJson, insertArtifacts, toJsonb } from './persistence_utils';
 
+async function replaceMarketplaceListingImages(
+  client: PoolClient,
+  listingId: string,
+  images: MarketplaceListing['images']
+): Promise<void> {
+  const rows = images
+    .map((image, position) => ({
+      position,
+      url: image.url,
+      width: image.width ?? null,
+      height: image.height ?? null
+    }))
+    .filter((row): row is { position: number; url: string; width: number | null; height: number | null } => Boolean(row.url));
+
+  await client.query('DELETE FROM scraper.marketplace_listing_images WHERE listing_id = $1', [listingId]);
+
+  if (rows.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      INSERT INTO scraper.marketplace_listing_images (
+        listing_id,
+        position,
+        url,
+        width,
+        height
+      )
+      SELECT
+        $1,
+        input.position,
+        input.url,
+        input.width,
+        input.height
+      FROM unnest($2::int[], $3::text[], $4::int[], $5::int[]) AS input(position, url, width, height)
+      ON CONFLICT (listing_id, position)
+      DO UPDATE SET
+        url = EXCLUDED.url,
+        width = COALESCE(EXCLUDED.width, scraper.marketplace_listing_images.width),
+        height = COALESCE(EXCLUDED.height, scraper.marketplace_listing_images.height)
+    `,
+    [
+      listingId,
+      rows.map((row) => row.position),
+      rows.map((row) => row.url),
+      rows.map((row) => row.width),
+      rows.map((row) => row.height)
+    ]
+  );
+}
+
+async function replaceMarketplaceListingDeliveryOptions(
+  client: PoolClient,
+  listingId: string,
+  deliveryOptions: string[]
+): Promise<void> {
+  await client.query('DELETE FROM scraper.marketplace_listing_delivery_options WHERE listing_id = $1', [listingId]);
+
+  if (deliveryOptions.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      INSERT INTO scraper.marketplace_listing_delivery_options (
+        listing_id,
+        delivery_option
+      )
+      SELECT
+        $1,
+        input.delivery_option
+      FROM unnest($2::text[]) AS input(delivery_option)
+      ON CONFLICT (listing_id, delivery_option)
+      DO NOTHING
+    `,
+    [listingId, deliveryOptions]
+  );
+}
+
+async function insertMarketplaceSellerScrapeListings(
+  client: PoolClient,
+  scrapeRunId: string,
+  listingIds: string[]
+): Promise<void> {
+  if (listingIds.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      INSERT INTO scraper.marketplace_seller_scrape_listings (
+        scrape_run_id,
+        position,
+        listing_id
+      )
+      SELECT
+        $1,
+        input.position,
+        input.listing_id
+      FROM unnest($2::int[], $3::text[]) AS input(position, listing_id)
+    `,
+    [scrapeRunId, listingIds.map((_, index) => index), listingIds]
+  );
+}
+
+async function insertMarketplaceSearchResults(
+  client: PoolClient,
+  scrapeRunId: string,
+  rows: Array<{
+    position: number;
+    listingId: string | null;
+    sellerId: string | null;
+    title: string | null;
+    priceAmount: number | null;
+    priceCurrency: string | null;
+    priceFormatted: string | null;
+    fullLocation: string | null;
+    availability: string | null;
+  }>
+): Promise<void> {
+  if (rows.length === 0) {
+    return;
+  }
+
+  await client.query(
+    `
+      INSERT INTO scraper.marketplace_search_results (
+        scrape_run_id,
+        position,
+        listing_id,
+        seller_id,
+        snapshot_title,
+        snapshot_price_amount,
+        snapshot_price_currency,
+        snapshot_price_formatted,
+        snapshot_full_location,
+        snapshot_availability
+      )
+      SELECT
+        $1,
+        input.position,
+        input.listing_id,
+        input.seller_id,
+        input.snapshot_title,
+        input.snapshot_price_amount,
+        input.snapshot_price_currency,
+        input.snapshot_price_formatted,
+        input.snapshot_full_location,
+        input.snapshot_availability
+      FROM unnest(
+        $2::int[],
+        $3::text[],
+        $4::text[],
+        $5::text[],
+        $6::numeric[],
+        $7::text[],
+        $8::text[],
+        $9::text[],
+        $10::text[]
+      ) AS input(
+        position,
+        listing_id,
+        seller_id,
+        snapshot_title,
+        snapshot_price_amount,
+        snapshot_price_currency,
+        snapshot_price_formatted,
+        snapshot_full_location,
+        snapshot_availability
+      )
+    `,
+    [
+      scrapeRunId,
+      rows.map((row) => row.position),
+      rows.map((row) => row.listingId),
+      rows.map((row) => row.sellerId),
+      rows.map((row) => row.title),
+      rows.map((row) => row.priceAmount),
+      rows.map((row) => row.priceCurrency),
+      rows.map((row) => row.priceFormatted),
+      rows.map((row) => row.fullLocation),
+      rows.map((row) => row.availability)
+    ]
+  );
+}
+
 export async function upsertMarketplaceSeller(
   client: PoolClient,
   seller: MarketplaceListingResult['seller'] | MarketplaceSellerResult['seller'],
@@ -129,48 +316,8 @@ export async function upsertMarketplaceListing(
     ]
   );
 
-  if (listing.images.length > 0) {
-    await client.query('DELETE FROM scraper.marketplace_listing_images WHERE listing_id = $1', [listing.id]);
-  }
-
-  for (const [index, image] of listing.images.entries()) {
-    if (!image.url) {
-      continue;
-    }
-
-    await client.query(
-      `
-        INSERT INTO scraper.marketplace_listing_images (
-          listing_id,
-          position,
-          url,
-          width,
-          height
-        ) VALUES ($1, $2, $3, $4, $5)
-        ON CONFLICT (listing_id, position)
-        DO UPDATE SET
-          url = EXCLUDED.url,
-          width = COALESCE(EXCLUDED.width, scraper.marketplace_listing_images.width),
-          height = COALESCE(EXCLUDED.height, scraper.marketplace_listing_images.height)
-      `,
-      [listing.id, index, image.url, image.width ?? null, image.height ?? null]
-    );
-  }
-
-  await client.query('DELETE FROM scraper.marketplace_listing_delivery_options WHERE listing_id = $1', [listing.id]);
-  for (const deliveryOption of listing.deliveryOptions) {
-    await client.query(
-      `
-        INSERT INTO scraper.marketplace_listing_delivery_options (
-          listing_id,
-          delivery_option
-        ) VALUES ($1, $2)
-        ON CONFLICT (listing_id, delivery_option)
-        DO NOTHING
-      `,
-      [listing.id, deliveryOption]
-    );
-  }
+  await replaceMarketplaceListingImages(client, listing.id, listing.images);
+  await replaceMarketplaceListingDeliveryOptions(client, listing.id, listing.deliveryOptions);
 
   return listing.id;
 }
@@ -207,40 +354,33 @@ export async function persistMarketplaceSearchSurface(
     ]
   );
 
+  const searchRows: Array<{
+    position: number;
+    listingId: string | null;
+    sellerId: string | null;
+    title: string | null;
+    priceAmount: number | null;
+    priceCurrency: string | null;
+    priceFormatted: string | null;
+    fullLocation: string | null;
+    availability: string | null;
+  }> = [];
+
   for (const [index, listing] of result.data.listings.entries()) {
     const listingId = await upsertMarketplaceListing(client, listing, listing);
-    const sellerId = listing.seller.id
-      ? await upsertMarketplaceSeller(client, listing.seller, { seller: listing.seller }, listing.seller.id)
-      : null;
-    await client.query(
-      `
-        INSERT INTO scraper.marketplace_search_results (
-          scrape_run_id,
-          position,
-          listing_id,
-          seller_id,
-          snapshot_title,
-          snapshot_price_amount,
-          snapshot_price_currency,
-          snapshot_price_formatted,
-          snapshot_full_location,
-          snapshot_availability
-        ) VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-      `,
-      [
-        scrapeRunId,
-        index,
-        listingId,
-        sellerId,
-        listing.title,
-        listing.price.amount,
-        listing.price.currency,
-        listing.price.formatted,
-        listing.location.fullLocation,
-        listing.availability
-      ]
-    );
+    searchRows.push({
+      position: index,
+      listingId,
+      sellerId: listing.seller.id ?? null,
+      title: listing.title,
+      priceAmount: listing.price.amount,
+      priceCurrency: listing.price.currency,
+      priceFormatted: listing.price.formatted,
+      fullLocation: listing.location.fullLocation,
+      availability: listing.availability
+    });
   }
+  await insertMarketplaceSearchResults(client, scrapeRunId, searchRows);
 
   await insertArtifacts(client, scrapeRunId, result.artifacts);
 
@@ -341,19 +481,14 @@ export async function persistMarketplaceSellerSurface(
     ]
   );
 
-  for (const [index, listing] of result.data.listings.entries()) {
+  const listingIds: string[] = [];
+  for (const listing of result.data.listings) {
     const listingId = await upsertMarketplaceListing(client, listing, listing);
-    await client.query(
-      `
-        INSERT INTO scraper.marketplace_seller_scrape_listings (
-          scrape_run_id,
-          position,
-          listing_id
-        ) VALUES ($1, $2, $3)
-      `,
-      [scrapeRunId, index, listingId]
-    );
+    if (listingId) {
+      listingIds.push(listingId);
+    }
   }
+  await insertMarketplaceSellerScrapeListings(client, scrapeRunId, listingIds);
 
   await insertArtifacts(client, scrapeRunId, result.artifacts);
 
