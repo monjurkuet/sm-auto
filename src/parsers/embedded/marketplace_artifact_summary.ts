@@ -2,20 +2,13 @@ import type { GraphQLFragment } from '../../types/contracts';
 import type { RouteDefinitionCaptureRecord } from '../../capture/route_definition_capture';
 import type { MarketplaceSellerDomProfile } from '../dom/marketplace_dom_parser';
 import type { MarketplaceListing } from '../../types/contracts';
+import { countBy } from '../../core/utils';
 import {
   parseMarketplaceListingFragments,
   parseMarketplaceSearchFragments,
   parseMarketplaceSellerInventoryFragments
 } from '../graphql/marketplace_parser';
 import { deepVisit, getString } from '../graphql/shared_graphql_utils';
-
-function countBy<T extends string>(values: T[]): Array<{ value: string; count: number }> {
-  const counts = new Map<string, number>();
-  for (const value of values) {
-    counts.set(value, (counts.get(value) ?? 0) + 1);
-  }
-  return [...counts.entries()].sort((left, right) => right[1] - left[1]).map(([value, count]) => ({ value, count }));
-}
 
 export function summarizeMarketplaceGraphqlFragments(fragments: GraphQLFragment[]): Record<string, unknown> {
   const friendlyNames = countBy(

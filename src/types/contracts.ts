@@ -52,6 +52,7 @@ export interface PageInfoResult {
     history: string[];
   };
   scrapedAt: string;
+  provenance?: Record<string, DataProvenance>;
 }
 
 export interface PagePost {
@@ -129,6 +130,7 @@ export interface MarketplaceOutputContext {
   routeLocation: MarketplaceRouteLocationContext | null;
   buyLocation: MarketplaceRouteLocationContext | null;
   queryNames: string[];
+  provenance?: Record<string, DataProvenance>;
 }
 
 export interface MarketplaceSearchResult {
@@ -177,3 +179,5 @@ export interface ExtractorResult<T> {
   data: T;
   artifacts?: Record<string, unknown>;
 }
+
+export type DataProvenance = 'graphql' | 'embedded_document' | 'route_definition' | 'dom' | 'merged';

@@ -32,5 +32,12 @@ chrome.txt
 .cursor
 .gemini
 .agent
-.agent
 .codex
+
+# Large test fixtures (keep locally for dev, not tracked)
+tests/fixtures/*.html
+tests/fixtures/*.txt
+
+# Large test fixtures (keep locally for dev, not tracked)
+tests/fixtures/*.html
+tests/fixtures/*.txt

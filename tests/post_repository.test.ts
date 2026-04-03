@@ -1,10 +1,7 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
 
-import {
-  findFacebookPostRecordId,
-  persistPagePostsSurface
-} from '../src/storage/postgres/post_repository';
+import { findFacebookPostRecordId, persistPagePostsSurface } from '../src/storage/postgres/post_repository';
 import type { PagePostsResult } from '../src/types/contracts';
 
 interface RecordedQuery {
@@ -14,6 +11,7 @@ interface RecordedQuery {
 
 class FakeClient {
   readonly queries: RecordedQuery[] = [];
+  private nextPostId = 100;
 
   async query(text: string, values: unknown[] = []): Promise<{ rows: Array<{ id: number }> }> {
     this.queries.push({ text, values });
@@ -22,8 +20,25 @@ class FakeClient {
       return { rows: [{ id: 42 }] };
     }
 
+    if (/INSERT INTO scraper\.facebook_posts/i.test(text) && /RETURNING id/i.test(text)) {
+      const id = this.nextPostId++;
+      return { rows: [{ id }] };
+    }
+
     if (/INSERT INTO scraper\.facebook_post_scrapes/i.test(text)) {
       return { rows: [{ id: 7 }] };
+    }
+
+    if (/UPDATE scraper\.facebook_posts/i.test(text)) {
+      return { rows: [] };
+    }
+
+    if (/INSERT INTO scraper\.facebook_post_tags/i.test(text)) {
+      return { rows: [] };
+    }
+
+    if (/INSERT INTO scraper\.facebook_post_media/i.test(text)) {
+      return { rows: [] };
     }
 
     return { rows: [] };
@@ -132,14 +147,14 @@ test('persistPagePostsSurface upserts duplicate logical posts in the same run', 
     }
   });
 
-  const scrapeInserts = client.queries.filter((query) => /INSERT INTO scraper\.facebook_post_scrapes/i.test(query.text));
-  assert.equal(scrapeInserts.length, 2);
-  assert.ok(scrapeInserts.every((query) => /ON CONFLICT \(scrape_run_id, post_record_id\)/i.test(query.text)));
-  assert.deepEqual(
-    scrapeInserts.map((query) => query.values.slice(0, 2)),
-    [
-      ['run-1', 42],
-      ['run-1', 42]
-    ]
+  const scrapeInserts = client.queries.filter((query) =>
+    /INSERT INTO scraper\.facebook_post_scrapes/i.test(query.text)
   );
+  assert.equal(scrapeInserts.length, 1);
+  assert.ok(/ON CONFLICT \(scrape_run_id, post_record_id\)/i.test(scrapeInserts[0]!.text));
+  assert.ok(/FROM unnest/i.test(scrapeInserts[0]!.text));
+  const tagInserts = client.queries.filter((query) => /INSERT INTO scraper\.facebook_post_tags/i.test(query.text));
+  assert.equal(tagInserts.length, 1);
+  const mediaInserts = client.queries.filter((query) => /INSERT INTO scraper\.facebook_post_media/i.test(query.text));
+  assert.equal(mediaInserts.length, 1);
 });

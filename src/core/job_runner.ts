@@ -16,7 +16,7 @@ import {
  * This prevents exposing internal directory structure in stored error logs.
  */
 function sanitizeStackTrace(stack: string): string {
-  return stack.replace(/\/[^\s]+\/src\//g, '/src/');
+  return stack.replace(/(?:^|\s)\/[^\s:]+(?::\d+)?/g, ' <redacted>');
 }
 
 export async function runScrapeJob<T>(

@@ -110,7 +110,16 @@ export async function extractMarketplaceListing(
               routeLocation: routeDefinition?.location ?? null,
               buyLocation,
               queryNames: [...new Set(listingQueries.map((query) => query.queryName))],
-              targetId: listingQueries.find((query) => query.targetId)?.targetId ?? listingId
+              targetId: listingQueries.find((query) => query.targetId)?.targetId ?? listingId,
+              provenance: {
+                title: fromStructured ? 'embedded_document' : 'dom',
+                price: fromStructured ? 'embedded_document' : 'dom',
+                seller: fromStructured ? 'embedded_document' : 'dom',
+                location: fromStructured ? 'embedded_document' : 'dom',
+                images: fromStructured ? 'embedded_document' : 'dom',
+                description: fromStructured ? 'embedded_document' : 'dom',
+                routeContext: 'route_definition'
+              }
             }
           },
           artifacts: {

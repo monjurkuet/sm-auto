@@ -1,9 +1,5 @@
 import type { GraphQLFragment, MarketplaceListing, MarketplaceSellerResult } from '../../types/contracts';
-import { deepVisit, getNumber, getString } from './shared_graphql_utils';
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
-}
+import { asRecord, deepVisit, getNumber, getString } from './shared_graphql_utils';
 
 function inferCurrency(formattedAmount: string | null): string | null {
   if (!formattedAmount) {
@@ -176,7 +172,9 @@ function addScoredListing(
   }
 
   const existing = listings.get(listing.id);
-  if (!existing || scoreListing(listing) >= scoreListing(existing)) {
+  const existingScore = existing ? scoreListing(existing) : -1;
+  const candidateScore = scoreListing(listing);
+  if (candidateScore >= existingScore) {
     listings.set(listing.id, listing);
   }
 }

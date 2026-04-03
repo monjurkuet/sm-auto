@@ -50,9 +50,7 @@ async function waitForMarketplaceSellerSignals(page: Page, timeoutMs: number): P
   );
 }
 
-async function getMarketplaceSellerProgressSnapshot(
-  page: Page
-): Promise<MarketplaceSellerProgressSnapshot> {
+async function getMarketplaceSellerProgressSnapshot(page: Page): Promise<MarketplaceSellerProgressSnapshot> {
   const [itemLinkCount, scrollHeight] = await Promise.all([
     countMarketplaceItemLinks(page).catch(() => 0),
     page.evaluate(() => document.body.scrollHeight).catch(() => 0)
@@ -89,17 +87,18 @@ async function waitForMarketplaceSellerProgress(
   }
 }
 
-async function scrollMarketplaceSellerInventory(
-  page: Page,
-  context: ScraperContext
-): Promise<void> {
+async function scrollMarketplaceSellerInventory(page: Page, context: ScraperContext): Promise<void> {
   let stalledScrolls = 0;
   let previous = await getMarketplaceSellerProgressSnapshot(page);
   const maxScrollAttempts = Math.max(3, Math.ceil(context.maxScrolls / 2));
 
   for (let index = 0; index < maxScrollAttempts; index += 1) {
     await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 1200)));
-    await waitForMarketplaceSellerProgress(page, previous, Math.max(context.scrollDelayMs, SELLER_SCROLL_PROGRESS_WAIT_MS));
+    await waitForMarketplaceSellerProgress(
+      page,
+      previous,
+      Math.max(context.scrollDelayMs, SELLER_SCROLL_PROGRESS_WAIT_MS)
+    );
 
     const current = await getMarketplaceSellerProgressSnapshot(page);
     const hasProgress = current.itemLinkCount > previous.itemLinkCount || current.scrollHeight > previous.scrollHeight;
@@ -182,7 +181,12 @@ export async function extractMarketplaceSeller(
             routeLocation: routeDefinition?.location ?? null,
             buyLocation,
             queryNames: [...new Set(sellerQueries.map((query) => query.queryName))],
-            sellerId: sellerQueries.find((query) => query.sellerId)?.sellerId ?? sellerId
+            sellerId: sellerQueries.find((query) => query.sellerId)?.sellerId ?? sellerId,
+            provenance: {
+              profile: structuredSeller.seller.id ? 'embedded_document' : 'dom',
+              inventory: structuredSeller.listings.length > 0 ? 'embedded_document' : 'dom',
+              routeContext: 'route_definition'
+            }
           },
           listings: structuredSeller.listings.length > 0 ? structuredSeller.listings : domSeller.listings,
           scrapedAt: new Date().toISOString()

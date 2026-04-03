@@ -1,5 +1,5 @@
 import type { GraphQLFragment, RequestMetadata } from '../../types/contracts';
-import { getNumber, getString } from '../graphql/shared_graphql_utils';
+import { asRecord, getNumber, getString } from '../graphql/shared_graphql_utils';
 
 export interface MarketplaceRouteLocation {
   radius: number | null;
@@ -22,8 +22,18 @@ export interface MarketplaceEmbeddedQueryContext {
   sellerId: string | null;
 }
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+export interface MarketplaceRouteDefinition {
+  routeUrl: string;
+  canonicalRouteName: string | null;
+  location: MarketplaceRouteLocation | null;
+  raw: unknown;
+}
+
+export interface MarketplaceEmbeddedQueryContext {
+  queryName: string;
+  buyLocation: MarketplaceRouteLocation | null;
+  targetId: string | null;
+  sellerId: string | null;
 }
 
 function collectBboxResults(value: unknown, results: unknown[]): void {

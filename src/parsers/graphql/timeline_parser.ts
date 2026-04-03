@@ -178,7 +178,9 @@ export function parseTimelineFragments(fragments: GraphQLFragment[]): PagePost[]
         }
 
         const existing = posts.get(dedupKey);
-        if (!existing || scorePost(post) >= scorePost(existing)) {
+        const existingScore = existing ? scorePost(existing) : -1;
+        const candidateScore = scorePost(post);
+        if (candidateScore >= existingScore) {
           posts.set(dedupKey, post);
         }
       });

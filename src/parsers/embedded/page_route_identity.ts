@@ -1,15 +1,11 @@
 import type { MarketplaceRouteDefinition } from './marketplace_embedded_parser';
-import { getString } from '../graphql/shared_graphql_utils';
+import { asRecord, getString } from '../graphql/shared_graphql_utils';
 
 export interface FacebookPageRouteIdentity {
   pageId: string | null;
   vanity: string | null;
   matchedRouteName: string | null;
   matchedRouteUrl: string | null;
-}
-
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
 
 function extractIdentityFromRoute(route: MarketplaceRouteDefinition): FacebookPageRouteIdentity | null {

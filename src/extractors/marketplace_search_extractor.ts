@@ -4,7 +4,7 @@ import { ChromeClient } from '../browser/chrome_client';
 import { PageSession } from '../browser/page_session';
 import { GraphQLCapture } from '../capture/graphql_capture';
 import { RouteDefinitionCapture } from '../capture/route_definition_capture';
-import { sleep } from '../core/sleep';
+import { sleep, waitForCondition } from '../core/sleep';
 import {
   collectMarketplaceSearchFragments,
   countMarketplaceItemLinks,
@@ -36,22 +36,6 @@ interface MarketplaceSearchProgressSnapshot {
   scrollHeight: number;
 }
 
-async function waitForCondition(
-  predicate: () => boolean,
-  timeoutMs: number,
-  pollMs = 100
-): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (predicate()) {
-      return;
-    }
-    await sleep(pollMs);
-  }
-
-  throw new Error(`Timed out after ${timeoutMs}ms waiting for marketplace search condition`);
-}
-
 async function getMarketplaceSearchProgressSnapshot(
   page: Page,
   capture: GraphQLCapture
@@ -68,11 +52,7 @@ async function getMarketplaceSearchProgressSnapshot(
   };
 }
 
-async function waitForMarketplaceSearchSignals(
-  page: Page,
-  capture: GraphQLCapture,
-  timeoutMs: number
-): Promise<void> {
+async function waitForMarketplaceSearchSignals(page: Page, capture: GraphQLCapture, timeoutMs: number): Promise<void> {
   const deadline = Date.now() + Math.min(timeoutMs, INITIAL_SEARCH_SIGNAL_WAIT_MS);
 
   while (Date.now() < deadline) {
@@ -169,10 +149,9 @@ export async function extractMarketplaceSearch(
       try {
         await page.goto(searchUrl, { waitUntil: 'domcontentloaded' });
         await waitForMarketplaceSearchSignals(page, capture, context.timeoutMs);
-        await waitForCondition(
-          () => routeCapture.records.length > 0,
-          Math.min(context.timeoutMs, 5_000)
-        ).catch(() => undefined);
+        await waitForCondition(() => routeCapture.records.length > 0, Math.min(context.timeoutMs, 5_000), {
+          message: 'Timed out waiting for marketplace search condition'
+        }).catch(() => undefined);
         await scrollMarketplaceSearchResults(page, capture, context);
 
         const html = await page.content();

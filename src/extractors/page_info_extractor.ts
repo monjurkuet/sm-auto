@@ -20,6 +20,7 @@ import {
 import { captureProfileTileItems, extractLocationFromEmbeddedData } from '../parsers/dom/embedded_dom_parser';
 import { extractFacebookPageRouteIdentity } from '../parsers/embedded/page_route_identity';
 import { buildDirectoryBasicInfoUrl, buildDirectoryContactUrl } from '../routes/facebook_routes';
+import { waitForCondition } from '../core/sleep';
 import type { ScraperContext } from '../core/scraper_context';
 import type { ExtractorResult, PageContactInfo, PageInfoResult } from '../types/contracts';
 
@@ -80,22 +81,6 @@ export function mergeContactInfo(parts: PageContactInfo[]): PageContactInfo {
   };
 }
 
-async function waitForCondition(
-  predicate: () => boolean,
-  timeoutMs: number,
-  pollMs = 100
-): Promise<void> {
-  const start = Date.now();
-  while (Date.now() - start < timeoutMs) {
-    if (predicate()) {
-      return;
-    }
-    await new Promise((resolve) => setTimeout(resolve, pollMs));
-  }
-
-  throw new Error(`Timed out after ${timeoutMs}ms waiting for route capture`);
-}
-
 async function waitForOptionalSignal(
   page: Page,
   predicate: () => boolean,
@@ -147,7 +132,8 @@ export async function extractPageInfo(
         await waitForMainPageSignals(page, context.timeoutMs);
         await waitForCondition(
           () => routeCapture.records.length > 0,
-          Math.min(context.timeoutMs, ROUTE_CAPTURE_WAIT_MS)
+          Math.min(context.timeoutMs, ROUTE_CAPTURE_WAIT_MS),
+          { message: 'Timed out waiting for route capture' }
         ).catch(() => undefined);
 
         const mainSnapshot = await snapshotPageDom(page);
@@ -217,7 +203,18 @@ export async function extractPageInfo(
             location,
             contact: mergedContact,
             creationDate,
-            history: transparency.history
+            history: transparency.history,
+            provenance: {
+              pageId: 'route_definition',
+              name: pageName === routeIdentity.vanity ? 'route_definition' : 'dom',
+              category: 'dom',
+              followers: 'dom',
+              following: 'dom',
+              bio: 'dom',
+              location: embeddedLocation ? 'embedded_document' : 'dom',
+              contact: 'dom',
+              creationDate: 'dom'
+            }
           }),
           artifacts: {
             route_capture_summary: summarizeRouteCapture(routeCapture.records, routeIdentity),

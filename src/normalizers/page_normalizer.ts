@@ -1,4 +1,4 @@
-import type { PageContactInfo, PageInfoResult } from '../types/contracts';
+import type { DataProvenance, PageContactInfo, PageInfoResult } from '../types/contracts';
 
 export interface PageInfoInput {
   pageId: string | null;
@@ -12,6 +12,7 @@ export interface PageInfoInput {
   contact: PageContactInfo;
   creationDate: string | null;
   history: string[];
+  provenance?: Record<string, DataProvenance>;
 }
 
 export function normalizePageInfo(input: PageInfoInput): PageInfoResult {
@@ -32,6 +33,7 @@ export function normalizePageInfo(input: PageInfoInput): PageInfoResult {
       creationDate: input.creationDate,
       history: [...new Set(input.history)]
     },
-    scrapedAt: new Date().toISOString()
+    scrapedAt: new Date().toISOString(),
+    provenance: input.provenance
   };
 }

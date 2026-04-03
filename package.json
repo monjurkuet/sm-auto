@@ -17,7 +17,8 @@
     "scrape:page-posts": "bun run src/cli/scrape_page_posts.ts",
     "scrape:marketplace-search": "bun run src/cli/scrape_marketplace_search.ts",
     "scrape:marketplace-listing": "bun run src/cli/scrape_marketplace_listing.ts",
-    "scrape:marketplace-seller": "bun run src/cli/scrape_marketplace_seller.ts"
+    "scrape:marketplace-seller": "bun run src/cli/scrape_marketplace_seller.ts",
+    "db:cleanup": "bun run src/cli/cleanup.ts"
   },
   "dependencies": {
     "dotenv": "^17.3.1",

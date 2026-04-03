@@ -1,3 +1,7 @@
+export function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
+}
+
 export function deepVisit(value: unknown, visit: (node: Record<string, unknown>) => void): void {
   if (!value || typeof value !== 'object') {
     return;
