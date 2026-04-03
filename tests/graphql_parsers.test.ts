@@ -563,3 +563,58 @@ test('timeline parsers extract posts and page identity', () => {
   assert.equal(identity.pageId, 'page-1');
   assert.equal(identity.pageName, 'Sample Page');
 });
+
+test('parseTimelineFragments deduplicates the same logical post across different story ids', () => {
+  const fragments: GraphQLFragment[] = [
+    {
+      url: 'https://www.facebook.com/api/graphql/',
+      status: 200,
+      timestamp: '2026-04-03T00:00:00.000Z',
+      request: {
+        friendlyName: 'ProfileCometTimelineFeedQuery',
+        rawFields: {}
+      },
+      fragments: [
+        {
+          data: {
+            node: {
+              __typename: 'Story',
+              id: 'story-1',
+              post_id: 'post-1',
+              permalink_url: 'https://www.facebook.com/sample/posts/post-1',
+              creation_time: 1774872389,
+              actors: [{ id: 'page-1', name: 'Sample Page' }],
+              message: { text: 'Short version' }
+            }
+          }
+        },
+        {
+          data: {
+            node: {
+              __typename: 'Story',
+              id: 'story-2',
+              post_id: 'post-1',
+              permalink_url: 'https://www.facebook.com/sample/posts/post-1',
+              creation_time: 1774872389,
+              actors: [{ id: 'page-1', name: 'Sample Page' }],
+              message: { text: 'Much richer version of the same post body for deduplication coverage' },
+              photo_image: {
+                uri: 'https://example.com/photo.jpg',
+                width: 1080,
+                height: 1080
+              }
+            }
+          }
+        }
+      ]
+    }
+  ];
+
+  const posts = parseTimelineFragments(fragments);
+
+  assert.equal(posts.length, 1);
+  assert.equal(posts[0]?.postId, 'post-1');
+  assert.equal(posts[0]?.id, 'story-2');
+  assert.equal(posts[0]?.text, 'Much richer version of the same post body for deduplication coverage');
+  assert.equal(posts[0]?.media.length, 1);
+});

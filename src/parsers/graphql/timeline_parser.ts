@@ -145,6 +145,9 @@ function normalizeStory(node: Record<string, unknown>): PagePost {
 
 function scorePost(post: PagePost): number {
   let score = 0;
+  if (post.postId) score += 10;
+  if (post.permalink) score += 8;
+  if (post.id) score += 4;
   if (post.text) score += 5;
   if (post.author.id || post.author.name) score += 3;
   if (post.createdAt) score += 2;
@@ -152,6 +155,10 @@ function scorePost(post: PagePost): number {
   score += post.links.length;
   score += post.hashtags.length;
   return score;
+}
+
+function getPostDedupKey(post: PagePost): string | null {
+  return post.postId ?? post.permalink ?? post.id;
 }
 
 export function parseTimelineFragments(fragments: GraphQLFragment[]): PagePost[] {
@@ -165,11 +172,14 @@ export function parseTimelineFragments(fragments: GraphQLFragment[]): PagePost[]
         }
 
         const post = normalizeStory(node);
-        if (post.id) {
-          const existing = posts.get(post.id);
-          if (!existing || scorePost(post) >= scorePost(existing)) {
-            posts.set(post.id, post);
-          }
+        const dedupKey = getPostDedupKey(post);
+        if (!dedupKey) {
+          return;
+        }
+
+        const existing = posts.get(dedupKey);
+        if (!existing || scorePost(post) >= scorePost(existing)) {
+          posts.set(dedupKey, post);
         }
       });
     }

@@ -121,6 +121,14 @@ export async function persistPagePostsSurface(
           shares,
           raw_result
         ) VALUES ($1, $2, $3, $4, $5, $6, $7)
+        ON CONFLICT (scrape_run_id, post_record_id)
+        DO UPDATE SET
+          position = EXCLUDED.position,
+          reactions = EXCLUDED.reactions,
+          comments = EXCLUDED.comments,
+          shares = EXCLUDED.shares,
+          raw_result = EXCLUDED.raw_result,
+          observed_at = now()
         RETURNING id
       `,
       [scrapeRunId, recordId, index, post.metrics.reactions, post.metrics.comments, post.metrics.shares, toJsonb(post)]

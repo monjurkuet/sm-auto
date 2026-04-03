@@ -101,15 +101,45 @@ test('persistPagePostsSurface bulk inserts tags and media per post scrape', asyn
     }
   });
 
+  const scrapeInsert = client.queries.find((query) => /INSERT INTO scraper\.facebook_post_scrapes/i.test(query.text));
   const tagInsert = client.queries.find((query) => /INSERT INTO scraper\.facebook_post_tags/i.test(query.text));
   const mediaInsert = client.queries.find((query) => /INSERT INTO scraper\.facebook_post_media/i.test(query.text));
 
+  assert.ok(scrapeInsert);
   assert.ok(tagInsert);
   assert.ok(mediaInsert);
+  assert.match(scrapeInsert!.text, /ON CONFLICT \(scrape_run_id, post_record_id\)/i);
   assert.match(tagInsert!.text, /FROM unnest/);
   assert.match(mediaInsert!.text, /FROM unnest/);
   assert.deepEqual(completion.outputSummary, {
     pageId: '100064688828733',
     postCount: 1
   });
+});
+
+test('persistPagePostsSurface upserts duplicate logical posts in the same run', async () => {
+  const client = new FakeClient();
+  const result = createPagePostsResult();
+  result.posts.push({
+    ...result.posts[0]!,
+    id: 'story-2'
+  });
+
+  await persistPagePostsSurface(client as never, 'run-1', {
+    data: result,
+    artifacts: {
+      graphql_summary: { responseCount: 1 }
+    }
+  });
+
+  const scrapeInserts = client.queries.filter((query) => /INSERT INTO scraper\.facebook_post_scrapes/i.test(query.text));
+  assert.equal(scrapeInserts.length, 2);
+  assert.ok(scrapeInserts.every((query) => /ON CONFLICT \(scrape_run_id, post_record_id\)/i.test(query.text)));
+  assert.deepEqual(
+    scrapeInserts.map((query) => query.values.slice(0, 2)),
+    [
+      ['run-1', 42],
+      ['run-1', 42]
+    ]
+  );
 });
