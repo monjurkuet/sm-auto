@@ -29,6 +29,44 @@ export function parseSharedOptions(argv = process.argv): ScraperContext {
   });
 }
 
+export interface BulkQueueOptions {
+  sourceQuery?: string;
+  sourceLocation?: string;
+  uncrawledOnly: boolean;
+  limit: number;
+  offset: number;
+  batchSize: number;
+  dryRun: boolean;
+  continueOnError: boolean;
+  delayMs: number;
+}
+
+export function parseBulkQueueOptions(argv = process.argv): BulkQueueOptions {
+  const args = yargs(hideBin(argv))
+    .option('source-query', { type: 'string' })
+    .option('source-location', { type: 'string' })
+    .option('uncrawled-only', { type: 'boolean', default: true })
+    .option('limit', { type: 'number', default: 100 })
+    .option('offset', { type: 'number', default: 0 })
+    .option('batch-size', { type: 'number', default: 25 })
+    .option('dry-run', { type: 'boolean', default: false })
+    .option('continue-on-error', { type: 'boolean', default: true })
+    .option('delay-ms', { type: 'number', default: 0 })
+    .parseSync();
+
+  return {
+    sourceQuery: args.sourceQuery,
+    sourceLocation: args.sourceLocation,
+    uncrawledOnly: args.uncrawledOnly,
+    limit: args.limit,
+    offset: args.offset,
+    batchSize: args.batchSize,
+    dryRun: args.dryRun,
+    continueOnError: args.continueOnError,
+    delayMs: args.delayMs
+  };
+}
+
 export interface CliSpec<T> {
   jobName: string;
   outputName: string;

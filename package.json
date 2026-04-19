@@ -18,6 +18,8 @@
     "scrape:marketplace-search": "bun run src/cli/scrape_marketplace_search.ts",
     "scrape:marketplace-listing": "bun run src/cli/scrape_marketplace_listing.ts",
     "scrape:marketplace-seller": "bun run src/cli/scrape_marketplace_seller.ts",
+    "scrape:marketplace-listings-bulk": "bun run src/cli/scrape_marketplace_listings.ts",
+    "scrape:marketplace-sellers-bulk": "bun run src/cli/scrape_marketplace_sellers.ts",
     "db:cleanup": "bun run src/cli/cleanup.ts"
   },
   "dependencies": {

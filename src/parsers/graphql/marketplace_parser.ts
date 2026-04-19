@@ -179,6 +179,20 @@ function addScoredListing(
   }
 }
 
+function isMarketplaceSearchScopedPayload(fragment: GraphQLFragment, payload: unknown): boolean {
+  if (fragment.request.friendlyName && /MarketplaceSearch/i.test(fragment.request.friendlyName)) {
+    return true;
+  }
+
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
+
+  const root = asRecord(payload) ?? {};
+  const path = Array.isArray(root.path) ? root.path : [];
+  return path.some((segment) => segment === 'marketplace_search');
+}
+
 function normalizeSellerNode(
   node: Record<string, unknown>,
   fallbackSellerId: string
@@ -227,18 +241,18 @@ function mergeSellerProfile(
 
 export function parseMarketplaceSearchFragments(fragments: GraphQLFragment[]): MarketplaceListing[] {
   const listings = new Map<string, MarketplaceListing>();
-  let structuredSearchHit = false;
 
   for (const fragment of fragments) {
     for (const payload of fragment.fragments) {
       const root = asRecord(payload) ?? {};
       const edgeContainer = asRecord(asRecord(asRecord(root.data)?.marketplace_search)?.feed_units);
       const edgeList = Array.isArray(edgeContainer?.edges) ? edgeContainer.edges : [];
+      let structuredPayloadHit = false;
 
       for (const edge of edgeList) {
         const listingNode = asRecord(asRecord(asRecord(edge)?.node)?.listing);
         if (listingNode) {
-          structuredSearchHit = true;
+          structuredPayloadHit = true;
           addScoredListing(listings, listingNode);
         }
       }
@@ -247,12 +261,12 @@ export function parseMarketplaceSearchFragments(fragments: GraphQLFragment[]): M
       if (path[0] === 'marketplace_search' && path[1] === 'feed_units') {
         const streamListing = asRecord(asRecord(asRecord(root.data)?.node)?.listing);
         if (streamListing) {
-          structuredSearchHit = true;
+          structuredPayloadHit = true;
           addScoredListing(listings, streamListing);
         }
       }
 
-      if (!structuredSearchHit) {
+      if (!structuredPayloadHit && isMarketplaceSearchScopedPayload(fragment, payload)) {
         deepVisit(payload, (node) => {
           addScoredListing(listings, node);
         });

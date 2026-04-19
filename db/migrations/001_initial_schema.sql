@@ -190,6 +190,9 @@ CREATE TABLE scraper.marketplace_listing_images (
   url text NOT NULL,
   width integer,
   height integer,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  is_active boolean NOT NULL DEFAULT true,
   CONSTRAINT marketplace_listing_images_unique UNIQUE (listing_id, position),
   CONSTRAINT marketplace_listing_images_url_unique UNIQUE (listing_id, url)
 );
@@ -197,6 +200,9 @@ CREATE TABLE scraper.marketplace_listing_images (
 CREATE TABLE scraper.marketplace_listing_delivery_options (
   listing_id text NOT NULL REFERENCES scraper.marketplace_listings(listing_id) ON DELETE CASCADE,
   delivery_option text NOT NULL,
+  first_seen_at timestamptz NOT NULL DEFAULT now(),
+  last_seen_at timestamptz NOT NULL DEFAULT now(),
+  is_active boolean NOT NULL DEFAULT true,
   PRIMARY KEY (listing_id, delivery_option)
 );
 
@@ -209,6 +215,7 @@ CREATE TABLE scraper.marketplace_search_scrapes (
   buy_latitude numeric(12, 7),
   buy_longitude numeric(12, 7),
   buy_vanity_page_id text,
+  scraped_at timestamptz NOT NULL,
   raw_result jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
@@ -216,7 +223,7 @@ CREATE TABLE scraper.marketplace_search_results (
   id bigserial PRIMARY KEY,
   scrape_run_id uuid NOT NULL REFERENCES scraper.marketplace_search_scrapes(scrape_run_id) ON DELETE CASCADE,
   position integer NOT NULL,
-  listing_id text REFERENCES scraper.marketplace_listings(listing_id) ON DELETE SET NULL,
+  listing_id text NOT NULL REFERENCES scraper.marketplace_listings(listing_id) ON DELETE SET NULL,
   seller_id text REFERENCES scraper.marketplace_sellers(seller_id) ON DELETE SET NULL,
   snapshot_title text,
   snapshot_price_amount numeric(18, 2),
@@ -224,7 +231,8 @@ CREATE TABLE scraper.marketplace_search_results (
   snapshot_price_formatted text,
   snapshot_full_location text,
   snapshot_availability text,
-  CONSTRAINT marketplace_search_results_unique UNIQUE (scrape_run_id, position)
+  observed_at timestamptz NOT NULL DEFAULT now(),
+  CONSTRAINT marketplace_search_results_unique UNIQUE (listing_id)
 );
 
 CREATE INDEX marketplace_search_results_listing_id_idx ON scraper.marketplace_search_results (listing_id);
@@ -236,6 +244,7 @@ CREATE TABLE scraper.marketplace_listing_scrapes (
   route_location jsonb,
   buy_location jsonb,
   query_names text[] NOT NULL DEFAULT '{}'::text[],
+  scraped_at timestamptz NOT NULL,
   target_id text,
   raw_result jsonb NOT NULL DEFAULT '{}'::jsonb
 );
@@ -247,6 +256,7 @@ CREATE TABLE scraper.marketplace_seller_scrapes (
   route_location jsonb,
   buy_location jsonb,
   query_names text[] NOT NULL DEFAULT '{}'::text[],
+  scraped_at timestamptz NOT NULL,
   raw_result jsonb NOT NULL DEFAULT '{}'::jsonb
 );
 
@@ -255,6 +265,7 @@ CREATE TABLE scraper.marketplace_seller_scrape_listings (
   scrape_run_id uuid NOT NULL REFERENCES scraper.marketplace_seller_scrapes(scrape_run_id) ON DELETE CASCADE,
   position integer NOT NULL,
   listing_id text REFERENCES scraper.marketplace_listings(listing_id) ON DELETE SET NULL,
+  observed_at timestamptz NOT NULL DEFAULT now(),
   CONSTRAINT marketplace_seller_scrape_listings_unique UNIQUE (scrape_run_id, position)
 );
 

@@ -17,6 +17,14 @@ function normalizeNumericVanityPageId(value: string | null | undefined): string 
   return value && /^\d+$/.test(value) ? value : null;
 }
 
+export function extractMarketplaceItemIdFromHref(href: string | null): string | null {
+  if (!href) {
+    return null;
+  }
+
+  return href.match(/\/marketplace\/item\/(\d+)/)?.[1] ?? null;
+}
+
 export function collectMarketplaceSearchFragments(fragments: GraphQLFragment[]): GraphQLFragment[] {
   return fragments.filter((fragment) => {
     const friendlyName = fragment.request.friendlyName ?? '';
@@ -41,7 +49,9 @@ export function mergeMarketplaceLocationContext(
     latitude: primary?.latitude ?? fallback?.latitude ?? null,
     longitude: primary?.longitude ?? fallback?.longitude ?? null,
     vanityPageId:
-      normalizeNumericVanityPageId(primary?.vanityPageId) ?? normalizeNumericVanityPageId(fallback?.vanityPageId) ?? null
+      normalizeNumericVanityPageId(primary?.vanityPageId) ??
+      normalizeNumericVanityPageId(fallback?.vanityPageId) ??
+      null
   };
 }
 
@@ -51,10 +61,11 @@ export async function enableMarketplaceRequestFiltering(page: Page): Promise<() 
 
 export async function countMarketplaceItemLinks(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const itemLinks = Array.from(document.querySelectorAll('a'))
+    const itemIds = Array.from(document.querySelectorAll('a'))
       .map((anchor) => anchor.getAttribute('href'))
-      .filter((href): href is string => typeof href === 'string' && href.includes('/marketplace/item/'));
+      .map((href) => href?.match(/\/marketplace\/item\/(\d+)/)?.[1] ?? null)
+      .filter((itemId): itemId is string => Boolean(itemId));
 
-    return new Set(itemLinks).size;
+    return new Set(itemIds).size;
   });
 }

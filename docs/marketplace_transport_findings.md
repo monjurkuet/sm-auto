@@ -3,6 +3,7 @@
 Date: 2026-03-15
 
 ## Scope
+
 - Seller profile route: `/marketplace/profile/61572591435930/`
 - Listing detail route: `/marketplace/item/1244539514326495/`
 
@@ -124,9 +125,16 @@ Observed in the embedded listing payload:
 
 ## Implication For The Scraper
 
-Current scraper behavior misses these payloads because the capture layer only records responses whose URL contains `/graphql/` or `/api/graphql/`.
+The scraper now handles the embedded HTML payload path in addition to network GraphQL capture.
+
+Current Marketplace extraction relies on:
+
+- network GraphQL capture where available
+- embedded `ScheduledServerJS` / `RelayPrefetchedStreamCache` payloads from the HTML document
+- DOM fallback only when neither network nor embedded payloads provide enough data
 
 Relevant code:
+
 - `sm-auto/src/capture/graphql_capture.ts`
 - `sm-auto/src/extractors/marketplace_listing_extractor.ts`
 - `sm-auto/src/extractors/marketplace_seller_extractor.ts`

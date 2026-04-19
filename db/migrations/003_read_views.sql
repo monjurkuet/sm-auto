@@ -84,6 +84,7 @@ SELECT
   ml.full_location,
   ml.availability,
   ml.category_id,
+  mls.scraped_at AS listing_scraped_at,
   ml.last_scraped_at,
   ml.latest_payload,
   mls.raw_result AS scrape_raw_result,
@@ -117,10 +118,12 @@ SELECT
   ml.city AS listing_city,
   ml.full_location AS listing_location,
   ml.availability AS listing_availability,
+  mssl.observed_at,
+  mssl.seller_scraped_at,
   mssl.completed_at AS last_scraped_at
 FROM scraper.marketplace_sellers ms
 LEFT JOIN LATERAL (
-  SELECT mssl.*, sr.completed_at
+  SELECT mssl.*, mss.scraped_at AS seller_scraped_at, sr.completed_at
   FROM scraper.marketplace_seller_scrape_listings mssl
   JOIN scraper.marketplace_seller_scrapes mss ON mss.scrape_run_id = mssl.scrape_run_id
   JOIN scraper.scrape_runs sr ON sr.id = mss.scrape_run_id
@@ -129,13 +132,14 @@ LEFT JOIN LATERAL (
   ORDER BY sr.completed_at DESC
   LIMIT 1
 ) mssl ON true
-LEFT JOIN scraper.marketplace_listings ml ON ml.listing_id = mssl.listing_id;
+  LEFT JOIN scraper.marketplace_listings ml ON ml.listing_id = mssl.listing_id;
 
 -- Search result summaries: latest search runs with listing counts
 CREATE OR REPLACE VIEW scraper.v_latest_searches AS
 SELECT
   sr.id AS scrape_run_id,
   sr.completed_at,
+  mss.scraped_at,
   mss.query,
   mss.location_text,
   mss.search_url,
@@ -144,11 +148,12 @@ SELECT
   mss.buy_longitude,
   mss.buy_vanity_page_id,
   COUNT(msr.listing_id) AS listing_count,
+  MAX(msr.observed_at) AS last_result_observed_at,
   mss.raw_result
 FROM scraper.scrape_runs sr
 JOIN scraper.marketplace_search_scrapes mss ON mss.scrape_run_id = sr.id
 LEFT JOIN scraper.marketplace_search_results msr ON msr.scrape_run_id = sr.id
 WHERE sr.surface = 'marketplace_search'
   AND sr.status = 'completed'
-GROUP BY sr.id, sr.completed_at, mss.query, mss.location_text, mss.search_url,
-         mss.buy_radius, mss.buy_latitude, mss.buy_longitude, mss.buy_vanity_page_id, mss.raw_result;
+GROUP BY sr.id, sr.completed_at, mss.scraped_at, mss.query, mss.location_text, mss.search_url,
+          mss.buy_radius, mss.buy_latitude, mss.buy_longitude, mss.buy_vanity_page_id, mss.raw_result;

@@ -22,20 +22,6 @@ export interface MarketplaceEmbeddedQueryContext {
   sellerId: string | null;
 }
 
-export interface MarketplaceRouteDefinition {
-  routeUrl: string;
-  canonicalRouteName: string | null;
-  location: MarketplaceRouteLocation | null;
-  raw: unknown;
-}
-
-export interface MarketplaceEmbeddedQueryContext {
-  queryName: string;
-  buyLocation: MarketplaceRouteLocation | null;
-  targetId: string | null;
-  sellerId: string | null;
-}
-
 function collectBboxResults(value: unknown, results: unknown[]): void {
   if (!value || typeof value !== 'object') {
     return;

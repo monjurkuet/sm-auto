@@ -83,7 +83,8 @@ async function waitForMarketplaceSearchProgress(
         const currentItemLinkCount = new Set(
           Array.from(document.querySelectorAll('a'))
             .map((anchor) => anchor.getAttribute('href'))
-            .filter((href) => typeof href === 'string' && href.includes('/marketplace/item/'))
+            .map((href) => href?.match(/\/marketplace\/item\/(\d+)/)?.[1] ?? null)
+            .filter((itemId): itemId is string => Boolean(itemId))
         ).size;
 
         return document.body.scrollHeight > previousHeight || currentItemLinkCount > previousItemLinkCount;
@@ -187,7 +188,9 @@ export async function extractMarketplaceSearch(
             route_definitions_summary: summarizeRouteDefinitions(routeCapture.records),
             collection_stats: {
               parsedListingCount: listings.length,
-              blockedResourceTypes: ['image', 'media', 'font']
+              blockedResourceTypes: ['image', 'media', 'font'],
+              capturedFragmentCount: relevantFragments.length,
+              capturedRouteCount: routeCapture.records.length
             }
           }
         };

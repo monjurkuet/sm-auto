@@ -11,7 +11,11 @@ import { normalizePosts } from '../normalizers/post_normalizer';
 import { createEmbeddedDocumentFragment } from '../parsers/embedded/marketplace_embedded_parser';
 import { extractFacebookPageRouteIdentity } from '../parsers/embedded/page_route_identity';
 import { mergePostMetricSnapshots, snapshotPostMetrics } from '../parsers/dom/post_dom_parser';
-import { collectTimelineFragments, parseTimelineFragments, parseTimelineIdentity } from '../parsers/graphql/timeline_parser';
+import {
+  collectTimelineFragments,
+  parseTimelineFragments,
+  parseTimelineIdentity
+} from '../parsers/graphql/timeline_parser';
 import type { ExtractorResult, PagePostsResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
 
@@ -34,9 +38,7 @@ async function waitForPagePostsSignals(page: Page, timeoutMs: number): Promise<v
     () => {
       const messageNodes = document.querySelectorAll('div[data-ad-preview="message"]').length;
       const postActions = Array.from(document.querySelectorAll('[aria-label]')).some((element) =>
-        /Actions for this post|See who reacted to this|Leave a comment/i.test(
-          element.getAttribute('aria-label') ?? ''
-        )
+        /Actions for this post|See who reacted to this|Leave a comment/i.test(element.getAttribute('aria-label') ?? '')
       );
       const embeddedPayload = Boolean(document.querySelector('script[data-sjs]'));
 
@@ -146,7 +148,11 @@ export async function extractPagePosts(
         }
 
         const graphqlPosts = parseTimelineFragments(parserFragments);
+        console.info(
+          `[DEBUG] parserFragments=${parserFragments.length} graphqlPosts=${graphqlPosts.length} domMetrics=${domMetrics.length}`
+        );
         const posts = normalizePosts(graphqlPosts, domMetrics);
+        console.info(`[DEBUG] after normalizePosts: ${posts.length} posts`);
 
         return {
           data: {
