@@ -1,11 +1,99 @@
 import assert from 'node:assert/strict';
+import vm from 'node:vm';
 import test from 'node:test';
 
 import {
   extractMarketplaceSellerLocationText,
   normalizeMarketplaceListingDomSnapshot,
-  normalizeMarketplaceSellerListingCards
+  normalizeMarketplaceSellerListingCards,
+  parseMarketplaceSellerFromDom
 } from '../src/parsers/dom/marketplace_dom_parser';
+
+function createSellerDomDocument() {
+  const spans = [
+    'John Smith',
+    'Joined Facebook in 2021',
+    '4.8 (12)',
+    'Responsive to messages',
+    'Just listed',
+    'BDT20,000',
+    'Austin, Texas, United States'
+  ].map((text) => ({ textContent: text }));
+
+  const listingSpan = (text: string) => ({ textContent: text });
+
+  const listingAnchor = {
+    href: '/marketplace/item/123/?ref=marketplace_profile',
+    getAttribute(name: string) {
+      return name === 'href' ? this.href : null;
+    },
+    textContent: 'BDT20,000 Used Bike Austin, Texas, United States',
+    querySelectorAll(selector: string) {
+      return selector === 'span'
+        ? [listingSpan('BDT20,000'), listingSpan('Used Bike'), listingSpan('Austin, Texas, United States')]
+        : [];
+    }
+  };
+
+  return {
+    querySelectorAll(selector: string) {
+      if (selector === 'span') {
+        return spans;
+      }
+
+      if (selector === 'a[href]') {
+        return [
+          {
+            href: '/profile/ignore',
+            getAttribute(name: string) {
+              return name === 'href' ? '/profile/ignore' : null;
+            },
+            textContent: 'Seller details',
+            querySelectorAll() {
+              return [];
+            }
+          },
+          listingAnchor
+        ];
+      }
+
+      if (selector === 'a[href*="/marketplace/profile/"]') {
+        return [listingAnchor];
+      }
+
+      return [];
+    },
+    title: 'Marketplace - John Smith | Facebook'
+  };
+}
+
+function createSandboxedPage() {
+  const document = createSellerDomDocument();
+
+  return {
+    async evaluate<T>(fn: (...args: unknown[]) => T, sellerId: string): Promise<T> {
+      const sandbox = {
+        document,
+        URL,
+        Set,
+        Array,
+        Math,
+        Number,
+        String,
+        Boolean,
+        RegExp,
+        JSON,
+        sellerId,
+        console,
+        result: undefined as T | undefined
+      };
+
+      vm.createContext(sandbox);
+      vm.runInContext(`result = (${fn.toString()})(sellerId)`, sandbox);
+      return sandbox.result as T;
+    }
+  };
+}
 
 test('normalizeMarketplaceListingDomSnapshot parses numeric price and listed-in location text', () => {
   const listing = normalizeMarketplaceListingDomSnapshot('listing-1', {
@@ -125,6 +213,18 @@ test('extractMarketplaceSellerLocationText is locale-agnostic', () => {
   );
 
   assert.equal(location, 'Austin, Texas, United States');
+});
+
+test('parseMarketplaceSellerFromDom derives location outside browser scope', async () => {
+  const seller = await parseMarketplaceSellerFromDom(createSandboxedPage() as never, 'seller-1');
+
+  assert.equal(seller.seller.id, 'seller-1');
+  assert.equal(seller.seller.name, 'John Smith');
+  assert.equal(seller.seller.location, 'Austin, Texas, United States');
+  assert.equal(seller.seller.rating, 4.8);
+  assert.equal(seller.seller.reviewCount, 12);
+  assert.equal(seller.listings.length, 1);
+  assert.equal(seller.listings[0]?.id, '123');
 });
 
 test('normalizeMarketplaceSellerListingCards deduplicates repeated listing ids and keeps the richer card', () => {

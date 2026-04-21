@@ -28,7 +28,8 @@ import type { ScraperContext } from '../core/scraper_context';
 
 const INITIAL_SEARCH_SIGNAL_WAIT_MS = 15_000;
 const SCROLL_PROGRESS_WAIT_MS = 1_500;
-const MAX_STALLED_SCROLLS = 3;
+const MAX_STALLED_SCROLLS = 10;
+const MAX_STALLED_SCROLLS_CAP = 25;
 
 interface MarketplaceSearchProgressSnapshot {
   fragmentCount: number;
@@ -98,6 +99,14 @@ async function waitForMarketplaceSearchProgress(
   }
 }
 
+export function computeMarketplaceSearchMaxStalledScrolls(maxScrolls: number): number {
+  if (maxScrolls >= 100) {
+    return Math.min(MAX_STALLED_SCROLLS_CAP, Math.max(MAX_STALLED_SCROLLS, Math.floor(maxScrolls / 10)));
+  }
+
+  return MAX_STALLED_SCROLLS;
+}
+
 async function scrollMarketplaceSearchResults(
   page: Page,
   capture: GraphQLCapture,
@@ -105,6 +114,13 @@ async function scrollMarketplaceSearchResults(
 ): Promise<void> {
   let stalledScrolls = 0;
   let previous = await getMarketplaceSearchProgressSnapshot(page, capture);
+  const maxStalledScrolls = computeMarketplaceSearchMaxStalledScrolls(context.maxScrolls);
+
+  context.logger.info('Marketplace search scroll configuration', {
+    maxScrolls: context.maxScrolls,
+    maxStalledScrolls,
+    scrollDelayMs: context.scrollDelayMs
+  });
 
   for (let index = 0; index < context.maxScrolls; index += 1) {
     await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 1200)));
@@ -118,7 +134,13 @@ async function scrollMarketplaceSearchResults(
 
     if (!hasProgress) {
       stalledScrolls += 1;
-      if (stalledScrolls >= MAX_STALLED_SCROLLS) {
+      if (stalledScrolls >= maxStalledScrolls) {
+        context.logger.info('Marketplace search scrolling stopped after stall threshold', {
+          attemptedScrolls: index + 1,
+          maxScrolls: context.maxScrolls,
+          stalledScrolls,
+          maxStalledScrolls
+        });
         break;
       }
     } else {

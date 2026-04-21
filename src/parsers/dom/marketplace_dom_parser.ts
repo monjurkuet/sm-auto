@@ -75,7 +75,9 @@ function extractMarketplaceListingLocationText(
     (value) =>
       value !== title &&
       value !== priceText &&
-      !/^(Send|Message|Save|Share|Sponsored|Details|Seller information|Today's picks|a day ago|today|yesterday)$/i.test(value)
+      !/^(Send|Message|Save|Share|Sponsored|Details|Seller information|Today's picks|a day ago|today|yesterday)$/i.test(
+        value
+      )
   );
 
   return (
@@ -242,39 +244,41 @@ function extractMarketplaceLinkRef(href: string | null): string | null {
 }
 
 function extractMarketplacePriceText(texts: string[], fallbackText: string): string | null {
-  return texts.find((entry) => MARKETPLACE_PRICE_PATTERN.test(entry)) ?? fallbackText.match(/(BDT\s?[\d,]+|\$\s?[\d,]+|FREE)/i)?.[1] ?? null;
+  return (
+    texts.find((entry) => MARKETPLACE_PRICE_PATTERN.test(entry)) ??
+    fallbackText.match(/(BDT\s?[\d,]+|\$\s?[\d,]+|FREE)/i)?.[1] ??
+    null
+  );
 }
 
 export function extractMarketplaceSellerLocationText(values: string[], sellerName: string | null): string | null {
   return (
-    [...values]
-      .reverse()
-      .find((value) => {
-        const trimmed = value.trim();
-        if (!trimmed || trimmed === sellerName) {
-          return false;
-        }
+    [...values].reverse().find((value) => {
+      const trimmed = value.trim();
+      if (!trimmed || trimmed === sellerName) {
+        return false;
+      }
 
-        if (
-          /^Joined Facebook in /i.test(trimmed) ||
-          /responsive|seller details|message|send|save|share|today's picks|marketplace/i.test(trimmed) ||
-          /^\d+(\.\d+)?\s+\(\d+\)$/.test(trimmed) ||
-          /\breviews?\b/i.test(trimmed) ||
-          MARKETPLACE_PRICE_PATTERN.test(trimmed)
-        ) {
-          return false;
-        }
+      if (
+        /^Joined Facebook in /i.test(trimmed) ||
+        /responsive|seller details|message|send|save|share|today's picks|marketplace/i.test(trimmed) ||
+        /^\d+(\.\d+)?\s+\(\d+\)$/.test(trimmed) ||
+        /\breviews?\b/i.test(trimmed) ||
+        MARKETPLACE_PRICE_PATTERN.test(trimmed)
+      ) {
+        return false;
+      }
 
-        if (!/\p{L}/u.test(trimmed)) {
-          return false;
-        }
+      if (!/\p{L}/u.test(trimmed)) {
+        return false;
+      }
 
-        if (trimmed.includes(',')) {
-          return true;
-        }
+      if (trimmed.includes(',')) {
+        return true;
+      }
 
-        return /^[\p{L}\s.'-]{2,60}$/u.test(trimmed) && trimmed.split(/\s+/).length <= 4;
-      }) ?? null
+      return /^[\p{L}\s.'-]{2,60}$/u.test(trimmed) && trimmed.split(/\s+/).length <= 4;
+    }) ?? null
   );
 }
 
@@ -297,8 +301,9 @@ function normalizeMarketplaceSellerListingCard(
     (normalizedText
       .replace(/^Just listed/i, '')
       .replace(/(BDT\s?[\d,]+|\$\s?[\d,]+|FREE)/i, '')
-      .trim() || null);
-  const fullLocation = visibleTexts.length > 1 ? visibleTexts[visibleTexts.length - 1] ?? null : null;
+      .trim() ||
+      null);
+  const fullLocation = visibleTexts.length > 1 ? (visibleTexts[visibleTexts.length - 1] ?? null) : null;
 
   return {
     id: listingId,
@@ -344,7 +349,9 @@ export function normalizeMarketplaceSellerListingCards(
       ref: extractMarketplaceLinkRef(card.href),
       listing: normalizeMarketplaceSellerListingCard(card, sellerId, sellerName)
     }))
-    .filter((entry): entry is { href: string | null; ref: string | null; listing: MarketplaceListing } => Boolean(entry.listing));
+    .filter((entry): entry is { href: string | null; ref: string | null; listing: MarketplaceListing } =>
+      Boolean(entry.listing)
+    );
 
   const preferredCards = normalizedCards.some((entry) => entry.ref === 'marketplace_profile')
     ? normalizedCards.filter((entry) => entry.ref === 'marketplace_profile')
@@ -385,7 +392,6 @@ export async function parseMarketplaceSellerFromDom(
     const ratingText = sellerContext.find((value) => /^\d+(\.\d+)?\s+\(\d+\)$/.test(value)) ?? null;
     const reviewCountMatch = ratingText?.match(/\((\d+)\)/) ?? spans.join(' ').match(/\((\d+)\)/);
     const ratingMatch = ratingText?.match(/^(\d+(?:\.\d+)?)/);
-    const location = extractMarketplaceSellerLocationText(sellerContext, name);
     const listingLinks = links.filter((link) => link.href.includes('/marketplace/item/')).slice(0, 40);
 
     return {
@@ -395,9 +401,9 @@ export async function parseMarketplaceSellerFromDom(
         about: responsive,
         rating: ratingMatch ? Number(ratingMatch[1]) : null,
         reviewCount: reviewCountMatch ? Number(reviewCountMatch[1]) : null,
-        location,
         memberSince
       },
+      sellerContext,
       listingCards: listingLinks.map((link) => ({
         href: link.getAttribute('href'),
         text: (link.textContent ?? '').trim().replace(/\s+/g, ' '),
@@ -409,7 +415,10 @@ export async function parseMarketplaceSellerFromDom(
   }, sellerId);
 
   return {
-    seller: result.seller,
+    seller: {
+      ...result.seller,
+      location: extractMarketplaceSellerLocationText(result.sellerContext, result.seller.name)
+    },
     listings: normalizeMarketplaceSellerListingCards(result.listingCards, sellerId, result.seller.name)
   };
 }
