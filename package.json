@@ -23,6 +23,7 @@
     "scrape:group-info": "bun run src/cli/scrape_group_info.ts",
     "scrape:group-posts": "bun run src/cli/scrape_group_posts.ts",
     "scrape:group-post-detail": "bun run src/cli/scrape_group_post_detail.ts",
+    "scrape:group-post-details-bulk": "bun run src/cli/scrape_group_post_details.ts",
     "db:cleanup": "bun run src/cli/cleanup.ts"
   },
   "dependencies": {
