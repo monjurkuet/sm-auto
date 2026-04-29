@@ -2,6 +2,9 @@ import type { PoolClient } from 'pg';
 
 import { SCHEMA_VERSIONS } from '../schema_versions';
 import type {
+  GroupInfoResult,
+  GroupPostDetailResult,
+  GroupPostsResult,
   MarketplaceListingResult,
   MarketplaceSearchResult,
   MarketplaceSellerResult,
@@ -9,6 +12,11 @@ import type {
   PagePostsResult
 } from '../../types/contracts';
 import type { PostgresJobPersistence, ScrapeRunCompletion, ScrapeRunStartInput } from './persistence_contracts';
+import {
+  persistGroupInfoSurface,
+  persistGroupPostDetailSurface,
+  persistGroupPostsSurface
+} from './group_repository';
 import {
   persistMarketplaceListingSurface,
   persistMarketplaceSearchSurface,
@@ -111,5 +119,41 @@ export function createMarketplaceSellerPersistence(
       inputPayload: { sellerId, url }
     },
     persist: persistMarketplaceSellerSurface
+  };
+}
+
+export function createGroupInfoPersistence(groupUrl: string): PostgresJobPersistence<GroupInfoResult> {
+  return {
+    start: {
+      surface: 'group_info',
+      schemaVersion: SCHEMA_VERSIONS.groupInfo,
+      sourceUrl: groupUrl,
+      inputPayload: { url: groupUrl }
+    },
+    persist: persistGroupInfoSurface,
+  };
+}
+
+export function createGroupPostsPersistence(groupUrl: string): PostgresJobPersistence<GroupPostsResult> {
+  return {
+    start: {
+      surface: 'group_posts',
+      schemaVersion: SCHEMA_VERSIONS.groupPosts,
+      sourceUrl: groupUrl,
+      inputPayload: { url: groupUrl }
+    },
+    persist: persistGroupPostsSurface,
+  };
+}
+
+export function createGroupPostDetailPersistence(postUrl: string): PostgresJobPersistence<GroupPostDetailResult> {
+  return {
+    start: {
+      surface: 'group_post_detail',
+      schemaVersion: SCHEMA_VERSIONS.groupPostDetail,
+      sourceUrl: postUrl,
+      inputPayload: { url: postUrl }
+    },
+    persist: persistGroupPostDetailSurface,
   };
 }
