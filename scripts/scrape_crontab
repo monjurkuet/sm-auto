@@ -1,0 +1,25 @@
+# Marketplace Scraper - three search queries, staggered every 10 min within each 30-min cycle
+#
+# Scroll settings: max-scrolls=200, scroll-delay-ms=800 (defaults in script)
+# Override per-query: e.g. --max-scrolls 300 --scroll-delay-ms 1000
+#
+# Schedule:
+# At :00  - iphone (Dhaka)
+# At :10  - toyota cars (Dhaka)
+# At :20  - bikes (Dhaka)
+# Then repeats at :30, :40, :50
+
+SCRIPT="/root/codebase/sm-auto/scripts/scrape_and_report.sh"
+LOGDIR="/root/codebase/sm-auto/output/logs"
+
+# Boot: wait 60s, then run all three sequentially
+@reboot sleep 60 && ${SCRIPT} --query "iphone" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+
+# Every 30 minutes: iphone (at :00 and :30)
+*/30 * * * * ${SCRIPT} --query "iphone" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+
+# Every 30 minutes offset +10: toyota cars (at :10 and :40)
+10,40 * * * * ${SCRIPT} --query "toyota cars" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+
+# Every 30 minutes offset +20: bikes (at :20 and :50)
+20,50 * * * * ${SCRIPT} --query "bikes" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1

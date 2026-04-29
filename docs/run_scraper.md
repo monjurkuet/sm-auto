@@ -127,8 +127,8 @@ These options are available across the scraper CLIs:
 - `--include-artifacts`
 - `--persist-db=false`
 - `--timeout-ms 90000`
-- `--max-scrolls 8`
-- `--scroll-delay-ms 2000`
+- `--max-scrolls 200`
+- `--scroll-delay-ms 800`
 
 ## Output
 

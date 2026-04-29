@@ -118,8 +118,52 @@ There are historical failed rows in `scrape_runs` from debugging passes. Those a
 1. Facebook post comments and share counts are still weaker than reactions.
 2. Page transparency extraction still contains noisy visible text from some page layouts.
 3. Search result persistence now dedupes by `listing_id`, so it no longer preserves repeated ranking history in the same table.
-4. There is no orchestration or scheduling layer yet; current entrypoints are CLI-first.
+4. ~~There is no orchestration or scheduling layer yet; current entrypoints are CLI-first.~~ A cron-based scheduling layer now exists (see [Scheduled Scraping](#scheduled-scraping)).
 5. Bulk uncrawled listing/seller crawlers exist, but there is no parallel execution or job queue.
+
+## Scheduled Scraping
+
+A cron-based automation layer runs marketplace searches on a fixed schedule using `scripts/scrape_and_report.sh` and `scripts/scrape_crontab`.
+
+### Active Queries
+
+| Minute | Query | Location | Frequency |
+|--------|-------|----------|-----------|
+| :00, :30 | iphone | Dhaka | Every 30 min |
+| :10, :40 | toyota cars | Dhaka | Every 30 min |
+| :20, :50 | bikes | Dhaka | Every 30 min |
+
+The three queries are staggered 10 minutes apart so they share a single Chrome instance without overlapping.
+
+### Scroll Settings
+
+The scraper uses adaptive scroll with stall detection:
+
+- `--max-scrolls 200` (up from 8 in interactive use; 200 balances coverage vs. time)
+- `--scroll-delay-ms 800` (Facebook pagination responds in ~300-500ms; 800ms is polite without being wasteful)
+- Stall threshold is dynamic: `min(25, max(10, floor(maxScrolls/10)))` -- with 200 scrolls that's 20 consecutive no-progress scrolls before stopping
+- Each query finishes in ~4-5 minutes, well within the 10-minute stagger window
+
+### Telegram Reports
+
+Each run sends an analytics report to Telegram with:
+
+- Price statistics (min, P10, P25, median, P75, P90, max, mean, IQR, stddev)
+- Quantile-based price group breakdowns
+- Top 5 cheapest and most expensive listings
+- Best value (nearest to median) listings
+- Outlier detection (IQR-fence method)
+- Top 5 locations by listing count with median/avg price
+- Delivery option breakdown with median/avg price
+- Repeat seller detection
+
+### Script CLI
+
+```bash
+scripts/scrape_and_report.sh --query "iphone" --location "Dhaka" --max-scrolls 200 --scroll-delay-ms 800
+```
+
+All args are optional and default to the values above. Override `--max-scrolls` per query if a particular search needs deeper or shallower scrolling.
 
 ## Best Next Tasks
 
@@ -128,3 +172,4 @@ There are historical failed rows in `scrape_runs` from debugging passes. Those a
 3. Add cleanup and retention tooling for old failed scrape runs and large artifact rows.
 4. Add provenance fields if we need to trace each field back to `graphql`, `embedded_document`, `route_definition`, or `dom`.
 5. Decide whether bulk crawlers should support parallel execution or stay sequential.
+6. Add listing-change detection across runs (price drops, new listings, delistings) for Telegram alerts.
