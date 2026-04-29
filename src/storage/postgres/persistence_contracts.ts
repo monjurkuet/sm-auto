@@ -7,7 +7,10 @@ export type ScrapeSurface =
   | 'page_posts'
   | 'marketplace_search'
   | 'marketplace_listing'
-  | 'marketplace_seller';
+  | 'marketplace_seller'
+  | 'group_info'
+  | 'group_posts'
+  | 'group_post_detail';
 
 export interface ScrapeRunStartInput {
   surface: ScrapeSurface;

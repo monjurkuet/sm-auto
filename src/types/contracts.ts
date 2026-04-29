@@ -181,3 +181,86 @@ export interface ExtractorResult<T> {
 }
 
 export type DataProvenance = 'graphql' | 'embedded_document' | 'route_definition' | 'dom' | 'merged';
+
+// ── Group Info ──
+export interface GroupAdmin {
+  id: string | null;
+  name: string | null;
+  adminType: string | null; // 'admin' | 'moderator'
+}
+
+export interface GroupInfoResult {
+  groupId: string | null;
+  url: string;
+  name: string | null;
+  vanitySlug: string | null;
+  privacyType: string | null;
+  groupType: string | null;
+  memberCount: number | null;
+  description: string | null;
+  coverPhotoUrl: string | null;
+  admins: GroupAdmin[];
+  rules: string[];
+  tags: string[];
+  scrapedAt: string;
+  provenance?: Record<string, DataProvenance>;
+}
+
+// ── Group Posts ──
+export interface GroupPost {
+  id: string | null;
+  postId: string | null;
+  permalink: string | null;
+  createdAt: string | null;
+  text: string | null;
+  author: {
+    id: string | null;
+    name: string | null;
+  };
+  media: Array<{
+    type: string | null;
+    id: string | null;
+    url: string | null;
+    width?: number;
+    height?: number;
+  }>;
+  metrics: {
+    reactions: number | null;
+    comments: number | null;
+    shares: number | null;
+  };
+  isApproved: boolean | null;
+}
+
+export interface GroupPostsResult {
+  groupId: string | null;
+  url: string;
+  posts: GroupPost[];
+  scrapedAt: string;
+}
+
+// ── Group Post Detail ──
+export interface GroupPostComment {
+  id: string | null;
+  parentId: string | null;
+  author: {
+    id: string | null;
+    name: string | null;
+  };
+  text: string | null;
+  createdAt: string | null;
+  metrics: {
+    reactions: number | null;
+    replies: number | null;
+  };
+}
+
+export interface GroupPostDetailResult {
+  postId: string | null;
+  url: string;
+  groupId: string | null;
+  post: GroupPost;
+  comments: GroupPostComment[];
+  totalCommentCount: number | null;
+  scrapedAt: string;
+}
