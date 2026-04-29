@@ -72,8 +72,8 @@ export function parseGroupMemberCount(snapshot: GroupDomSnapshot): number | null
     if (match?.[1]) {
       return parseNumber(match[1]);
     }
-    // Match combined patterns like "1.2K members · 5 posts/day"
-    const combinedMatch = span.match(/([\d,.]+[KM]?)\s+members?\s*[·•]/i);
+    // Match combined patterns like "Public group · 254.5K members" or "1.2K members · 5 posts/day"
+    const combinedMatch = span.match(/([\d,.]+[KM]?)\s+members?/i);
     if (combinedMatch?.[1]) {
       return parseNumber(combinedMatch[1]);
     }
@@ -94,9 +94,15 @@ export function parseGroupMemberCount(snapshot: GroupDomSnapshot): number | null
 
 export function parseGroupPrivacyType(snapshot: GroupDomSnapshot): string | null {
   for (const span of snapshot.spans) {
+    // Match exact "Public group", "Private group", "Secret group"
     if (/^public\s+group$/i.test(span)) return 'Public';
     if (/^private\s+group$/i.test(span)) return 'Private';
     if (/^secret\s+group$/i.test(span)) return 'Secret';
+    // Match combined like "Public group · 254.5K members"
+    if (/^(public|private|secret)\s+group\s*[·•]/i.test(span)) {
+      const m = span.match(/^(public|private|secret)\s+group/i);
+      if (m) return m[1].charAt(0).toUpperCase() + m[1].slice(1).toLowerCase();
+    }
   }
   return null;
 }
