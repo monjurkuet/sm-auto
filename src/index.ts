@@ -5,3 +5,4 @@ export * from './extractors/page_posts_extractor';
 export * from './extractors/marketplace_search_extractor';
 export * from './extractors/marketplace_listing_extractor';
 export * from './extractors/marketplace_seller_extractor';
+export * from './extractors/group_post_detail_extractor';
