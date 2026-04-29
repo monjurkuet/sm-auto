@@ -13,6 +13,7 @@ This package scaffolds a modular Facebook scraper that attaches to an already-ru
 - Facebook Marketplace search
 - Facebook Marketplace listing details
 - Facebook Marketplace seller pages
+- Facebook group metadata, feed posts, and post comments
 
 ## Non-goals
 - Chrome launch management

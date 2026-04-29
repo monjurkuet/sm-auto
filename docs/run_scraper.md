@@ -81,6 +81,30 @@ bun run src/cli/scrape_marketplace_listings.ts --source-query "iphone" --source-
 bun run src/cli/scrape_marketplace_sellers.ts --source-query "iphone" --source-location "Dhaka" --uncrawled-only
 ```
 
+### Group Info
+
+```bash
+bun run src/cli/scrape_group_info.ts --url "https://www.facebook.com/groups/430419725850542/" --persist-db=false
+```
+
+### Group Posts
+
+```bash
+bun run src/cli/scrape_group_posts.ts --url "https://www.facebook.com/groups/430419725850542/" --max-scrolls 20 --persist-db=false
+```
+
+### Group Post Detail
+
+```bash
+bun run src/cli/scrape_group_post_detail.ts --post-url "https://www.facebook.com/groups/430419725850542/posts/1313462557546250/" --persist-db=false
+```
+
+### Bulk Group Post Detail Crawl
+
+```bash
+bun run src/cli/scrape_group_post_details.ts --group-id 430419725850542 --limit 10
+```
+
 ### Marketplace Bulk Crawl Options
 
 - `--uncrawled-only` crawl only uncrawled entities
