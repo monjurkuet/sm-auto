@@ -20,6 +20,9 @@
     "scrape:marketplace-seller": "bun run src/cli/scrape_marketplace_seller.ts",
     "scrape:marketplace-listings-bulk": "bun run src/cli/scrape_marketplace_listings.ts",
     "scrape:marketplace-sellers-bulk": "bun run src/cli/scrape_marketplace_sellers.ts",
+    "scrape:group-info": "bun run src/cli/scrape_group_info.ts",
+    "scrape:group-posts": "bun run src/cli/scrape_group_posts.ts",
+    "scrape:group-post-detail": "bun run src/cli/scrape_group_post_detail.ts",
     "db:cleanup": "bun run src/cli/cleanup.ts"
   },
   "dependencies": {
