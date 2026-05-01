@@ -181,9 +181,9 @@ def is_dhaka(city):
 # Derived from DB analysis: prices below these are junk/spam/accessories
 # that use BDT1 as "contact for price" or are car accessories posing as cars.
 QUERY_MIN_PRICE = {
- "iphone": 5000, # Below 5K is mostly batteries, displays, dead phones, parts
- "toyota cars": 50000, # Clear bimodal: accessories/parts <50K, actual cars >1L
- "bikes": 500, # Real bikes start ~1K, under 500 is mostly accessories/junk
+    "iphone": 5000, # Below 5K is mostly batteries, displays, dead phones, parts
+    "toyota cars": 50000, # Clear bimodal: accessories/parts <50K, actual cars >1L
+    "bikes": 500, # Real bikes start ~1K, under 500 is mostly accessories/junk
 }
 DEFAULT_MIN_PRICE = 100 # Fallback for unknown queries
 
@@ -191,9 +191,9 @@ DEFAULT_MIN_PRICE = 100 # Fallback for unknown queries
 # Listings above these are almost certainly typos or wrong-currency tags.
 # Toyota Prius at 32.5 crore BDT is clearly wrong, etc.
 QUERY_MAX_PRICE = {
- "iphone": 200000, # Even the newest iPhone Pro Max is ~180K BDT
- "toyota cars": 10000000, # 1 crore — ultra-luxury ceiling for Bangladesh market
- "bikes": 500000, # Very high-end bikes max out around 3-5L BDT
+    "iphone": 200000, # Even the newest iPhone Pro Max is ~180K BDT
+    "toyota cars": 10000000, # 1 crore — ultra-luxury ceiling for Bangladesh market
+    "bikes": 500000, # Very high-end bikes max out around 3-5L BDT
 }
 DEFAULT_MAX_PRICE = 50000000
 
@@ -203,51 +203,51 @@ DEFAULT_MAX_PRICE = 50000000
 import re
 
 def is_accessory(title, query_lower):
- """Return True if the title describes an accessory/part, not the main item."""
- if not title:
- return False
- t = title.lower()
- if query_lower == "iphone":
- # Only filter titles that are clearly accessories/parts, NOT phones
- # with specs like "battery 92%", "with cable", "camera ok", "display original".
- # Conservative patterns: only match when accessory is the primary subject.
- accessory_kw = [
- r'\bonly\s+(display|screen|lcd|battery|camera|back|housing|parts?)\b',
- r'\b(display|lcd|screen|battery|camera|back|housing)\s+only\b',
- r'\bgx\s+(display|quality)\b',
- r'\boriginal\s+(display|lcd|screen)\b',  # "original display" = selling display
- r'\bincell\s+lcd\b',
- r'\bmotherboard\b',
- r'\btempered\s+glass\b',
- r'\bprivacy\s+(glass|screen|film)\b',
- r'\biphone\s+\d+\s*(pro?\s*max)?\s*(original|gx)\s*(display|lcd|screen)\b',
- r'\bparts?\s+(only|selling|available)\b',
- r'\b(selling|for)\s+parts?\b',
- r'\biphone\s+\d+\s*(pro?\s*max)?\s*display\b', # "iPhone 14 pro max display" = display product
- ]
- return any(re.search(p, t) for p in accessory_kw)
- elif query_lower == "toyota cars":
- # Car parts/accessories posing as cars
- car_accessory_kw = [
- r'\bsticker\b', r'\bmat\b', r'\bcover\b', r'\bhandle\b',
- r'\bmirror\b', r'\bhub\b', r'\bbearing\b', r'\bbulb\b',
- r'\bhorn\b', r'\bfilter\b', r'\bpad\b', r'\bcoaster\b',
- r'\bemblem\b', r'\bdecals?\b', r'\bstrap\b',
- r'\bparts?\b', r'\baccessor',
- ]
- return any(re.search(p, t) for p in car_accessory_kw)
- elif query_lower == "bikes":
- # Bike accessories
- bike_accessory_kw = [
- r'\blight\b', r'\bhorn\b', r'\bbell\b', r'\bmirror\b',
- r'\bcarrier\b', r'\brack\b', r'\bpedal\b', r'\bseat\b',
- r'\bhandle\b', r'\bgrip\b', r'\btire\b', r'\bchain\b',
- r'\bbrake\b', r'\bspoke\b', r'\bhub\b', r'\bbearing\b',
- r'\bstand\b', r'\bguard\b', r'\bcover\b', r'\bsticker\b',
- r'\bparts?\b', r'\baccessor',
- ]
- return any(re.search(p, t) for p in bike_accessory_kw)
- return False
+    """Return True if the title describes an accessory/part, not the main item."""
+    if not title:
+        return False
+    t = title.lower()
+    if query_lower == "iphone":
+        # Only filter titles that are clearly accessories/parts, NOT phones
+        # with specs like "battery 92%", "with cable", "camera ok", "display original".
+        # Conservative patterns: only match when accessory is the primary subject.
+        accessory_kw = [
+            r'\bonly\s+(display|screen|lcd|battery|camera|back|housing|parts?)\b',
+            r'\b(display|lcd|screen|battery|camera|back|housing)\s+only\b',
+            r'\bgx\s+(display|quality)\b',
+            r'\boriginal\s+(display|lcd|screen)\b', # "original display" = selling display
+            r'\bincell\s+lcd\b',
+            r'\bmotherboard\b',
+            r'\btempered\s+glass\b',
+            r'\bprivacy\s+(glass|screen|film)\b',
+            r'\biphone\s+\d+\s*(pro?\s*max)?\s*(original|gx)\s*(display|lcd|screen)\b',
+            r'\bparts?\s+(only|selling|available)\b',
+            r'\b(selling|for)\s+parts?\b',
+            r'\biphone\s+\d+\s*(pro?\s*max)?\s*display\b', # "iPhone 14 pro max display" = display product
+        ]
+        return any(re.search(p, t) for p in accessory_kw)
+    elif query_lower == "toyota cars":
+        # Car parts/accessories posing as cars
+        car_accessory_kw = [
+            r'\bsticker\b', r'\bmat\b', r'\bcover\b', r'\bhandle\b',
+            r'\bmirror\b', r'\bhub\b', r'\bbearing\b', r'\bbulb\b',
+            r'\bhorn\b', r'\bfilter\b', r'\bpad\b', r'\bcoaster\b',
+            r'\bemblem\b', r'\bdecals?\b', r'\bstrap\b',
+            r'\bparts?\b', r'\baccessor',
+        ]
+        return any(re.search(p, t) for p in car_accessory_kw)
+    elif query_lower == "bikes":
+        # Bike accessories
+        bike_accessory_kw = [
+            r'\blight\b', r'\bhorn\b', r'\bbell\b', r'\bmirror\b',
+            r'\bcarrier\b', r'\brack\b', r'\bpedal\b', r'\bseat\b',
+            r'\bhandle\b', r'\bgrip\b', r'\btire\b', r'\bchain\b',
+            r'\bbrake\b', r'\bspoke\b', r'\bhub\b', r'\bbearing\b',
+            r'\bstand\b', r'\bguard\b', r'\bcover\b', r'\bsticker\b',
+            r'\bparts?\b', r'\baccessor',
+        ]
+        return any(re.search(p, t) for p in bike_accessory_kw)
+    return False
 
 # ── Step 1: Filter to Dhaka only ──
 dhaka_listings = [l for l in listings if is_dhaka((l.get("location") or {}).get("city", ""))]
@@ -272,25 +272,25 @@ non_bdt = 0
 accessory_count = 0
 query_lower = query.lower()
 for l in all_priced:
- p = l.get("price") or {}
- amt = p.get("amount")
- cur = p.get("currency", "BDT")
- # Skip non-BDT listings (they're almost all junk or wrong-currency)
- if cur != "BDT":
- non_bdt += 1
- continue
- if amt < q_lower:
- junk_low += 1
- continue
- if amt > q_upper:
- junk_high += 1
- continue
- # Skip accessories/parts by title pattern
- title = l.get("title") or ""
- if is_accessory(title, query_lower):
- accessory_count += 1
- continue
- priced.append(l)
+    p = l.get("price") or {}
+    amt = p.get("amount")
+    cur = p.get("currency", "BDT")
+    # Skip non-BDT listings (they're almost all junk or wrong-currency)
+    if cur != "BDT":
+        non_bdt += 1
+        continue
+    if amt < q_lower:
+        junk_low += 1
+        continue
+    if amt > q_upper:
+        junk_high += 1
+        continue
+    # Skip accessories/parts by title pattern
+    title = l.get("title") or ""
+    if is_accessory(title, query_lower):
+        accessory_count += 1
+        continue
+    priced.append(l)
 
 # ── Dominant currency (should be BDT after filter) ──
 cur_counter = Counter()
@@ -315,12 +315,12 @@ lines.append(f" Dhaka only: {len(dhaka_listings)}" + (f" ({non_dhaka_count} non-
 lines.append(f" With price > 0: {len(all_priced)}")
 junk_total = junk_low + junk_high + non_bdt + accessory_count
 if junk_total > 0:
- parts = []
- if junk_low > 0: parts.append(f"{junk_low} below {fmt(q_lower)}")
- if junk_high > 0: parts.append(f"{junk_high} above {fmt(q_upper)}")
- if non_bdt > 0: parts.append(f"{non_bdt} non-BDT")
- if accessory_count > 0: parts.append(f"{accessory_count} accessories/parts")
- lines.append(f" Filtered: {junk_total} ({' | '.join(parts)})")
+    parts = []
+    if junk_low > 0: parts.append(f"{junk_low} below {fmt(q_lower)}")
+    if junk_high > 0: parts.append(f"{junk_high} above {fmt(q_upper)}")
+    if non_bdt > 0: parts.append(f"{non_bdt} non-BDT")
+    if accessory_count > 0: parts.append(f"{accessory_count} accessories/parts")
+    lines.append(f" Filtered: {junk_total} ({' | '.join(parts)})")
 lines.append(f" ✅ Clean listings: {len(priced)}")
 lines.append("")
 
@@ -449,16 +449,16 @@ if len(priced) >= 5:
 
 # ── Junk Breakdown (transparency) ──
 if junk_total > 0:
- lines.append("<b>🚫 Filtered</b>")
- if junk_low > 0:
- lines.append(f" {junk_low} below {fmt(q_lower)} {cur_str} (spam/junk pricing)")
- if junk_high > 0:
- lines.append(f" {junk_high} above {fmt(q_upper)} {cur_str} (typos/wrong currency)")
- if non_bdt > 0:
- lines.append(f" {non_bdt} non-BDT (unreliable for BDT market)")
- if accessory_count > 0:
- lines.append(f" {accessory_count} accessories/parts (title-matched)")
- lines.append("")
+    lines.append("<b>🚫 Filtered</b>")
+    if junk_low > 0:
+        lines.append(f" {junk_low} below {fmt(q_lower)} {cur_str} (spam/junk pricing)")
+    if junk_high > 0:
+        lines.append(f" {junk_high} above {fmt(q_upper)} {cur_str} (typos/wrong currency)")
+    if non_bdt > 0:
+        lines.append(f" {non_bdt} non-BDT (unreliable for BDT market)")
+    if accessory_count > 0:
+        lines.append(f" {accessory_count} accessories/parts (title-matched)")
+    lines.append("")
 
 lines.append(f"🕐 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
