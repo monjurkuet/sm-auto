@@ -1,5 +1,7 @@
 # Facebook Group Monitoring System
 
+> **STATUS: IMPLEMENTED AND LIVE (2026-05-01).** All 7 tasks completed. System is running on cron. See `docs/FACEBOOK_GROUPS_REPORT.md` for the full system report.
+
 ## Architecture Overview
 
 A cron-driven monitoring system that periodically scrapes registered Facebook groups, scores their vitality, and continuously crawls post details (comments/replies). Three layers:

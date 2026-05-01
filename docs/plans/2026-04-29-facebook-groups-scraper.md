@@ -1,5 +1,7 @@
 # Facebook Groups Scraper Implementation Plan
 
+> **STATUS: ALL 18 TASKS COMPLETED (2026-05-01).** See `docs/FACEBOOK_GROUPS_REPORT.md` for the current system report. This plan is the original design; the monitoring system (registry, vitality scoring, cron orchestration) was added in a second phase documented in `docs/plans/2026-05-01-group-monitoring-system.md`.
+
 > **For Hermes:** Use subagent-driven-development skill to implement this plan task-by-task.
 
 **Goal:** Add Facebook Groups scraping to sm-auto, covering group metadata, feed posts, and post detail (comments, replies, reactions).
