@@ -95,6 +95,24 @@ function isBase64EntityId(id: string): boolean {
  return /^[A-Za-z0-9+/=]{20,}$/.test(id);
 }
 
+/**
+ * Try to extract a numeric post ID from a base64-encoded compound entity ID.
+ * Facebook uses compound keys like "user:USERID:VK:POSTID" encoded in base64.
+ * We decode and extract the trailing numeric segment as the postId.
+ * Returns the numeric post ID string, or null if extraction fails.
+ */
+function extractPostIdFromBase64EntityId(id: string): string | null {
+ if (!isBase64EntityId(id)) return null;
+ try {
+ const decoded = Buffer.from(id, 'base64').toString('utf-8');
+ // Match trailing numeric ID in compound keys like "S:_I100089532218170:VK:1315106307381875"
+ const match = decoded.match(/[:](\d{10,})$/);
+ return match ? match[1] : null;
+ } catch {
+ return null;
+ }
+}
+
 function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | null {
  // Extract postId from several possible field names
  let postId =
@@ -106,9 +124,15 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  return null;
  }
 
- // Skip base64-encoded entity IDs (user IDs, feedback IDs, etc.) — not valid post IDs
+ // Skip base64-encoded entity IDs — but first try to extract the numeric post ID
+ // from compound keys like "user:USERID:VK:POSTID"
  if (isBase64EntityId(postId)) {
+ const extracted = extractPostIdFromBase64EntityId(postId);
+ if (extracted) {
+ postId = extracted;
+ } else {
  return null;
+ }
  }
 
  // ── Author ──
@@ -389,8 +413,9 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  // Strategy 2: Check comet_sections.feedback for UFI summary metrics
  if (cometSections) {
  const feedbackSection = asRecord(cometSections.feedback);
- if (feedbackSection) {
+ if (feedbackSection && postId) {
  // Path A: feedbackSection → story_ufi_container → story → feedback_context → feedback_target_with_context
+ // (feed/listing page structure)
  const ufiContainer = asRecord(feedbackSection.story_ufi_container);
  if (ufiContainer) {
  const ufiStory = asRecord(ufiContainer.story);
@@ -398,7 +423,6 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  const feedbackContext = asRecord(ufiStory.feedback_context);
  const feedbackTarget = asRecord(feedbackContext?.feedback_target_with_context);
  if (feedbackTarget) {
- // Direct fields on feedback_target_with_context
  if (reactions === null) {
  const rc = asRecord(feedbackTarget.reaction_count);
  if (rc) reactions = getNumber(rc.count);
@@ -459,7 +483,8 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  }
  }
  }
- }
+ } // closes if (ufiStory)
+ } // closes if (ufiContainer) — Path A done
 
  // Path B: feedbackSection → story → story_ufi_container → story → feedback_context → feedback_target_with_context
  // (detail page has an extra "story" layer wrapping the UFI container)
@@ -543,10 +568,9 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  }
  }
  }
- }
-}
-}
-}
+ } // end Path B (if feedbackStory)
+ } // end if (feedbackSection && postId)
+ } // end Strategy 2
 
 // Fallback: direct fields on the story node
  if (reactions === null) {
@@ -732,13 +756,14 @@ export function parseGroupFeedFragments(fragments: GraphQLFragment[]): GroupPost
  for (const payload of fragment.fragments) {
  deepVisit(payload, (node) => {
  if (node.__typename === 'Feedback' && typeof node.id === 'string') {
- // Check for metrics either directly or inside UFI renderer
+ // Check for metrics either directly, via comment_rendering_instance, or inside UFI renderer
  const hasDirectMetrics = typeof node.total_comment_count === 'number' ||
  typeof node.comment_count === 'number' ||
  (typeof node.reaction_count === 'object' && node.reaction_count !== null) ||
  (typeof node.reaction_summary === 'object' && node.reaction_summary !== null);
+ const hasCriMetrics = typeof node.comment_rendering_instance === 'object' && node.comment_rendering_instance !== null;
  const hasUfiMetrics = typeof node.comet_ufi_summary_and_actions_renderer === 'object' && node.comet_ufi_summary_and_actions_renderer !== null;
- if (hasDirectMetrics || hasUfiMetrics) {
+ if (hasDirectMetrics || hasCriMetrics || hasUfiMetrics) {
  const postId = decodeFeedbackIdToPostId(node.id);
  if (postId) {
  const metrics = extractMetricsFromFeedbackNode(node);
@@ -803,7 +828,14 @@ export function parseGroupFeedFragments(fragments: GraphQLFragment[]): GroupPost
  const existing = posts.get(dedupKey);
  const existingScore = existing ? scoreGroupPost(existing) : -1;
  const candidateScore = scoreGroupPost(post);
- if (candidateScore >= existingScore) {
+ // Only replace if strictly better, or if the candidate has metrics where existing doesn't
+ const isStrictlyBetter = candidateScore > existingScore;
+ const hasNewMetrics = existing && (
+ (existing.metrics.reactions === null && post.metrics.reactions !== null) ||
+ (existing.metrics.comments === null && post.metrics.comments !== null) ||
+ (existing.metrics.shares === null && post.metrics.shares !== null)
+ );
+ if (isStrictlyBetter || hasNewMetrics || !existing) {
  posts.set(dedupKey, post);
  }
  });

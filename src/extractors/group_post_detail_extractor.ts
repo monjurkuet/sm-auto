@@ -259,19 +259,26 @@ export async function extractGroupPostDetail(
           };
         }
 
-        // Parse comments + replies
-        const parserCommentFragments = embeddedDocument
-          ? [...commentFragments, embeddedDocument]
-          : commentFragments;
-        const comments = parseGroupCommentFragments(parserCommentFragments);
+ // Parse comments + replies
+ const parserCommentFragments = embeddedDocument
+ ? [...commentFragments, embeddedDocument]
+ : commentFragments;
+ const allComments = parseGroupCommentFragments(parserCommentFragments);
+
+ // Filter comments to only those belonging to this post
+ // Comment IDs are in format POSTID_COMMENTID — match the postId prefix
+ const effectivePostId = post.postId ?? postIdFromUrl;
+ const comments = effectivePostId
+ ? allComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
+ : allComments;
 
  // Derive groupId: prefer the URL (canonical), fall back to route definitions
  const urlGroupId = postUrl.match(/\/groups\/([^/]+)\//)?.[1] ?? null;
  const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
  const groupId = urlGroupId ?? routeIdentity.groupId ?? null;
 
-        // Total comment count: from the post metrics if available, else from parsed comments
-        const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
+ // Total comment count: from the post metrics if available, else from parsed comments
+ const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
 
         return {
           data: {

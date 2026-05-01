@@ -7,7 +7,8 @@ import { PageSession } from '../browser/page_session';
 import { GraphQLCapture } from '../capture/graphql_capture';
 import { RouteDefinitionCapture } from '../capture/route_definition_capture';
 import { enableRequestFiltering } from '../browser/request_filter';
-import { createEmbeddedDocumentFragment } from '../parsers/embedded/marketplace_embedded_parser';
+import { createEmbeddedDocumentFragment, extractScheduledServerJsResults } from '../parsers/embedded/marketplace_embedded_parser';
+import { parseGroupEmbeddedInfo } from '../parsers/embedded/group_info_embedded_parser';
 import { waitForCondition, sleep } from '../core/sleep';
 import {
   snapshotGroupDom,
@@ -80,45 +81,58 @@ export async function extractGroupInfo(
         // Parse from route definitions
         const { groupId, vanitySlug: routeVanitySlug } = extractGroupRouteIdentity(routeCapture.records);
 
-        // Try navigating to /about sub-page for more data (rules, admins, tags)
-        let admins: Array<{ id: string | null; name: string | null; adminType: string | null }> = [];
-        let rules: string[] = [];
-        let tags: string[] = [];
+ // Parse embedded data from the main group page for admins/rules/tags/groupType/coverPhoto
+ const mainPageHtml = await page.content();
+ const mainPageEmbedded = parseGroupEmbeddedInfo(mainPageHtml);
+ let admins = mainPageEmbedded.admins;
+ let rules = mainPageEmbedded.rules;
+ let tags = mainPageEmbedded.tags;
+ let groupType = mainPageEmbedded.groupType;
+ let coverPhotoUrl = mainPageEmbedded.coverPhotoUrl;
 
-        try {
-          const aboutUrl = groupUrl.replace(/\/$/, '') + '/about/';
-          await page.goto(aboutUrl, { waitUntil: 'domcontentloaded' });
-          await sleep(2000);
-          const _aboutSnapshot = await snapshotGroupDom(page);
-          // Parse admins from about page (look for admin/moderator links and spans)
-          // Parse rules from about page
-          // Parse tags from about page
-          // These are best-effort - if the about page doesn't exist, we skip gracefully
-        } catch {
-          // About page may not be accessible, that's fine
-        }
+ // Try navigating to /about/ sub-page for additional data
+ try {
+ const aboutUrl = groupUrl.replace(/\/$/, '') + '/about/';
+ await page.goto(aboutUrl, { waitUntil: 'domcontentloaded' });
+ await sleep(2000);
+ const aboutHtml = await page.content();
+ const aboutEmbedded = parseGroupEmbeddedInfo(aboutHtml);
+ // Merge: about page may have more complete admin/rule/tag data
+ if (aboutEmbedded.admins.length > 0) admins = aboutEmbedded.admins;
+ if (aboutEmbedded.rules.length > 0) rules = aboutEmbedded.rules;
+ if (aboutEmbedded.tags.length > 0) tags = aboutEmbedded.tags;
+ if (aboutEmbedded.groupType && !groupType) groupType = aboutEmbedded.groupType;
+ if (aboutEmbedded.coverPhotoUrl && !coverPhotoUrl) coverPhotoUrl = aboutEmbedded.coverPhotoUrl;
+ } catch {
+ // About page may not be accessible, that's fine
+ }
 
-        // Assemble result
-        const result = normalizeGroupInfo({
-          groupId,
-          url: groupUrl,
-          name,
-          vanitySlug: routeVanitySlug ?? vanitySlug,
-          privacyType,
-          groupType: null, // extracted from embedded/GraphQL data if available
-          memberCount,
-          description,
-          coverPhotoUrl: null, // extracted from embedded data if available
-          admins,
-          rules,
-          tags,
-          provenance: {
-            groupId: (routeCapture.records.length > 0 ? 'route_definition' : 'dom') as DataProvenance,
-            name: 'dom' as DataProvenance,
-            memberCount: 'dom' as DataProvenance,
-            privacyType: 'dom' as DataProvenance
-          }
-        });
+ // Assemble result
+ const result = normalizeGroupInfo({
+ groupId,
+ url: groupUrl,
+ name,
+ vanitySlug: routeVanitySlug ?? vanitySlug,
+ privacyType,
+ groupType,
+ memberCount,
+ description,
+ coverPhotoUrl,
+ admins,
+ rules,
+ tags,
+ provenance: {
+ groupId: (routeCapture.records.length > 0 ? 'route_definition' : 'dom') as DataProvenance,
+ name: 'dom' as DataProvenance,
+ memberCount: 'dom' as DataProvenance,
+ privacyType: 'dom' as DataProvenance,
+ ...(admins.length > 0 ? { admins: 'embedded_document' as DataProvenance } : {}),
+ ...(rules.length > 0 ? { rules: 'embedded_document' as DataProvenance } : {}),
+ ...(tags.length > 0 ? { tags: 'embedded_document' as DataProvenance } : {}),
+ ...(groupType ? { groupType: 'embedded_document' as DataProvenance } : {}),
+ ...(coverPhotoUrl ? { coverPhotoUrl: 'embedded_document' as DataProvenance } : {})
+ }
+ });
 
         return {
           data: result,
