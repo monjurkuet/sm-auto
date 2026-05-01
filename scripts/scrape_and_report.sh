@@ -7,6 +7,9 @@ QUERY="${QUERY:-iphone}"
 LOCATION="${LOCATION:-Dhaka}"
 MAX_SCROLLS=200
 SCROLL_DELAY_MS=800
+# Telegram delivery target: group topic for marketplace reports
+TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:--1003974246097}"
+TELEGRAM_THREAD_ID="${TELEGRAM_THREAD_ID:-2}"
 
 # ── Parse CLI args ──
 while [[ $# -gt 0 ]]; do
@@ -15,6 +18,8 @@ while [[ $# -gt 0 ]]; do
  --location) LOCATION="$2"; shift 2 ;;
  --max-scrolls) MAX_SCROLLS="$2"; shift 2 ;;
  --scroll-delay-ms) SCROLL_DELAY_MS="$2"; shift 2 ;;
+ --chat-id) TELEGRAM_CHAT_ID="$2"; shift 2 ;;
+ --thread-id) TELEGRAM_THREAD_ID="$2"; shift 2 ;;
  *) echo "Unknown arg: $1" >&2; exit 1 ;;
  esac
 done
@@ -51,23 +56,30 @@ TELEGRAM_HOME_CHANNEL=$(grep -E '^TELEGRAM_HOME_CHANNEL=' "$HOME/.hermes/.env" 2
 
 # ── Telegram notification ──
 send_telegram() {
-  local token="${TELEGRAM_BOT_TOKEN:-}"
-  local chat_id="${TELEGRAM_HOME_CHANNEL:-${TELEGRAM_ALLOWED_USERS:-}}"
-  if [[ -z "$token" || -z "$chat_id" ]]; then
-    echo "[$(date)] Telegram credentials not found; skipping notification." | tee -a "${LOG_FILE}"
-    return
-  fi
-  local payload="$1"
-  # Telegram limit ~4096 chars
-  local len=${#payload}
-  if [[ $len -gt 4000 ]]; then
-    payload="${payload:0:3990}..."
-  fi
-  curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
-  --data-urlencode "chat_id=${chat_id}" \
-  --data-urlencode "text=${payload}" \
-  --data-urlencode "parse_mode=HTML" \
-  > /dev/null 2>&1 || true
+ local token="${TELEGRAM_BOT_TOKEN:-}"
+ local chat_id="${TELEGRAM_CHAT_ID:-${TELEGRAM_HOME_CHANNEL:-${TELEGRAM_ALLOWED_USERS:-}}}"
+ local thread_id="${TELEGRAM_THREAD_ID:-}"
+ if [[ -z "$token" || -z "$chat_id" ]]; then
+ echo "[$(date)] Telegram credentials not found; skipping notification." | tee -a "${LOG_FILE}"
+ return
+ fi
+ local payload="$1"
+ # Telegram limit ~4096 chars
+ local len=${#payload}
+ if [[ $len -gt 4000 ]]; then
+ payload="${payload:0:3990}..."
+ fi
+ local curl_args=(
+ --data-urlencode "chat_id=${chat_id}"
+ --data-urlencode "text=${payload}"
+ --data-urlencode "parse_mode=HTML"
+ )
+ # Add message_thread_id for group topics (forums)
+ if [[ -n "${thread_id}" ]]; then
+ curl_args+=( --data-urlencode "message_thread_id=${thread_id}" )
+ fi
+ curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+ "${curl_args[@]}" > /dev/null 2>&1 || true
 }
 
 # ── Step 1: Ensure Chrome is running with remote debugging ──

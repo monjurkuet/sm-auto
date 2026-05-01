@@ -18,22 +18,26 @@ import type { ScraperContext } from '../core/scraper_context';
 
 const INITIAL_FEED_SIGNAL_WAIT_MS = 15_000;
 const SCROLL_PROGRESS_WAIT_MS = 1_500;
-const MAX_STALLED_SCROLLS = 10;
-const MAX_STALLED_SCROLLS_CAP = 25;
+const MAX_STALLED_SCROLLS = 15;
+const MAX_STALLED_SCROLLS_CAP = 30;
 
 interface GroupPostsProgressSnapshot {
-  fragmentCount: number;
-  postLinkCount: number;
-  scrollHeight: number;
+ fragmentCount: number;
+ totalGraphQLResponseCount: number;
+ postLinkCount: number;
+ scrollHeight: number;
 }
 
 async function countGroupPostLinks(page: Page): Promise<number> {
   return page.evaluate(() => {
-    const pattern = /\/groups\/[^/]+\/posts\//;
+    // Match /groups/GROUP_ID/posts/POST_ID/ pattern for real post links
+    const postPattern = /\/groups\/[^/]+\/posts\/\d+/;
+    // Also match permalinks like /posts/GROUP_ID_POST_ID
+    const permalinkPattern = /\/posts\/\d+_\d+/;
     const seen = new Set<string>();
     Array.from(document.querySelectorAll('a')).forEach((anchor) => {
       const href = anchor.getAttribute('href');
-      if (href && pattern.test(href)) {
+      if (href && (postPattern.test(href) || permalinkPattern.test(href))) {
         seen.add(href);
       }
     });
@@ -42,67 +46,88 @@ async function countGroupPostLinks(page: Page): Promise<number> {
 }
 
 async function getGroupPostsProgressSnapshot(
-  page: Page,
-  capture: GraphQLCapture
+ page: Page,
+ capture: GraphQLCapture
 ): Promise<GroupPostsProgressSnapshot> {
-  const [postLinkCount, scrollHeight] = await Promise.all([
-    countGroupPostLinks(page).catch(() => 0),
-    page.evaluate(() => document.body.scrollHeight).catch(() => 0)
-  ]);
+ const [postLinkCount, scrollHeight] = await Promise.all([
+ countGroupPostLinks(page).catch(() => 0),
+ page.evaluate(() => document.body.scrollHeight).catch(() => 0)
+ ]);
 
-  return {
-    fragmentCount: collectGroupFeedFragments(capture.registry.all()).length,
-    postLinkCount,
-    scrollHeight
-  };
+ return {
+ fragmentCount: collectGroupFeedFragments(capture.registry.all()).length,
+ totalGraphQLResponseCount: capture.registry.all().length,
+ postLinkCount,
+ scrollHeight
+ };
 }
 
 async function waitForGroupFeedSignals(page: Page, capture: GraphQLCapture, timeoutMs: number): Promise<void> {
-  const deadline = Date.now() + Math.min(timeoutMs, INITIAL_FEED_SIGNAL_WAIT_MS);
+ const deadline = Date.now() + Math.min(timeoutMs, INITIAL_FEED_SIGNAL_WAIT_MS);
 
-  while (Date.now() < deadline) {
-    const fragmentCount = collectGroupFeedFragments(capture.registry.all()).length;
-    if (fragmentCount > 0) {
-      return;
-    }
+ while (Date.now() < deadline) {
+ const fragmentCount = collectGroupFeedFragments(capture.registry.all()).length;
+ if (fragmentCount > 0) {
+ return;
+ }
 
-    const postLinkCount = await countGroupPostLinks(page).catch(() => 0);
-    if (postLinkCount > 0) {
-      return;
-    }
+ const postLinkCount = await countGroupPostLinks(page).catch(() => 0);
+ if (postLinkCount > 0) {
+ return;
+ }
 
-    await sleep(250);
-  }
+ // Also check for Story nodes in the DOM's embedded data
+ try {
+ const hasFeedUnit = await page.evaluate(() => {
+ const scripts = Array.from(document.querySelectorAll('script[type="application/json"][data-sjs]'));
+ for (const script of scripts) {
+ const text = script.textContent ?? '';
+ if (text.includes('"__typename":"Story"') || text.includes('group_feed_units')) {
+ return true;
+ }
+ }
+ return false;
+ });
+ if (hasFeedUnit) {
+ return;
+ }
+ } catch {
+ // DOM check failure shouldn't block
+ }
 
-  throw new Error('Timed out waiting for group feed signals');
+ await sleep(250);
+ }
+
+ throw new Error('Timed out waiting for group feed signals');
 }
 
 async function waitForGroupPostsProgress(
-  page: Page,
-  previous: GroupPostsProgressSnapshot,
-  timeoutMs: number
+ page: Page,
+ previous: GroupPostsProgressSnapshot,
+ timeoutMs: number
 ): Promise<void> {
-  try {
-    await page.waitForFunction(
-      (previousHeight: number, previousPostLinkCount: number) => {
-        const pattern = /\/groups\/[^/]+\/posts\//;
-        const seen = new Set<string>();
-        Array.from(document.querySelectorAll('a')).forEach((anchor) => {
-          const href = anchor.getAttribute('href');
-          if (href && pattern.test(href)) {
-            seen.add(href);
-          }
-        });
-        const currentPostLinkCount = seen.size;
-        return document.body.scrollHeight > previousHeight || currentPostLinkCount > previousPostLinkCount;
-      },
-      { timeout: timeoutMs },
-      previous.scrollHeight,
-      previous.postLinkCount
-    );
-  } catch {
-    // Pagination stalls are expected once the group feed is exhausted.
-  }
+ try {
+ await page.waitForFunction(
+ (previousHeight: number, previousPostLinkCount: number) => {
+ const postPattern = /\/groups\/[^/]+\/posts\/\d+/;
+ const permalinkPattern = /\/posts\/\d+_\d+/;
+ const seen = new Set<string>();
+ Array.from(document.querySelectorAll('a')).forEach((anchor) => {
+ const href = anchor.getAttribute('href');
+ if (href && (postPattern.test(href) || permalinkPattern.test(href))) {
+ seen.add(href);
+ }
+ });
+ const currentPostLinkCount = seen.size;
+ return document.body.scrollHeight > previousHeight || currentPostLinkCount > previousPostLinkCount;
+ },
+ { timeout: timeoutMs },
+ previous.scrollHeight,
+ previous.postLinkCount
+ );
+ } catch {
+ // Pagination stalls are expected once the group feed is exhausted.
+ }
 }
 
 export function computeMaxStalledScrolls(maxScrolls: number): number {
@@ -114,47 +139,63 @@ export function computeMaxStalledScrolls(maxScrolls: number): number {
 }
 
 async function scrollGroupPosts(
-  page: Page,
-  capture: GraphQLCapture,
-  context: ScraperContext
+ page: Page,
+ capture: GraphQLCapture,
+ context: ScraperContext
 ): Promise<void> {
-  let stalledScrolls = 0;
-  let previous = await getGroupPostsProgressSnapshot(page, capture);
-  const maxStalledScrolls = computeMaxStalledScrolls(context.maxScrolls);
+ let stalledScrolls = 0;
+ let previous = await getGroupPostsProgressSnapshot(page, capture);
+ const maxStalledScrolls = computeMaxStalledScrolls(context.maxScrolls);
 
-  context.logger.info('Group posts scroll configuration', {
-    maxScrolls: context.maxScrolls,
-    maxStalledScrolls,
-    scrollDelayMs: context.scrollDelayMs
-  });
+ context.logger.info('Group posts scroll configuration', {
+ maxScrolls: context.maxScrolls,
+ maxStalledScrolls,
+ scrollDelayMs: context.scrollDelayMs
+ });
 
-  for (let index = 0; index < context.maxScrolls; index += 1) {
-    await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 1200)));
-    await waitForGroupPostsProgress(page, previous, Math.max(context.scrollDelayMs, SCROLL_PROGRESS_WAIT_MS));
+ const SNAPSHOT_INTERVAL = 5; // capture DOM snapshot every N scrolls
 
-    const current = await getGroupPostsProgressSnapshot(page, capture);
-    const hasProgress =
-      current.fragmentCount > previous.fragmentCount ||
-      current.postLinkCount > previous.postLinkCount ||
-      current.scrollHeight > previous.scrollHeight;
+ for (let index = 0; index < context.maxScrolls; index += 1) {
+ await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 1200)));
+ await waitForGroupPostsProgress(page, previous, Math.max(context.scrollDelayMs, SCROLL_PROGRESS_WAIT_MS));
 
-    if (!hasProgress) {
-      stalledScrolls += 1;
-      if (stalledScrolls >= maxStalledScrolls) {
-        context.logger.info('Group posts scrolling stopped after stall threshold', {
-          attemptedScrolls: index + 1,
-          maxScrolls: context.maxScrolls,
-          stalledScrolls,
-          maxStalledScrolls
-        });
-        break;
-      }
-    } else {
-      stalledScrolls = 0;
-    }
+ // Periodically capture embedded document fragments so posts that leave the DOM aren't lost
+ if ((index + 1) % SNAPSHOT_INTERVAL === 0) {
+ try {
+ const html = await page.content();
+ const fragment = createEmbeddedDocumentFragment(page.url(), html);
+ if (fragment) {
+ capture.registry.add(fragment);
+ }
+ } catch {
+ // DOM snapshot failure shouldn't break scrolling
+ }
+ }
 
-    previous = current;
-  }
+ const current = await getGroupPostsProgressSnapshot(page, capture);
+ const hasProgress =
+ current.fragmentCount > previous.fragmentCount ||
+ current.totalGraphQLResponseCount > previous.totalGraphQLResponseCount ||
+ current.postLinkCount > previous.postLinkCount ||
+ current.scrollHeight > previous.scrollHeight;
+
+ if (!hasProgress) {
+ stalledScrolls += 1;
+ if (stalledScrolls >= maxStalledScrolls) {
+ context.logger.info('Group posts scrolling stopped after stall threshold', {
+ attemptedScrolls: index + 1,
+ maxScrolls: context.maxScrolls,
+ stalledScrolls,
+ maxStalledScrolls
+ });
+ break;
+ }
+ } else {
+ stalledScrolls = 0;
+ }
+
+ previous = current;
+ }
 }
 
 export async function extractGroupPosts(

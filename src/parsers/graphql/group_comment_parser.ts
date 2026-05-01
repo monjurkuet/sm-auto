@@ -29,23 +29,49 @@ export function collectGroupCommentFragments(fragments: GraphQLFragment[]): Grap
   });
 }
 
+// ── Base64 ID decoding ──
+
+/**
+ * Decode a base64 Facebook comment ID to a human-readable form.
+ * Format: "comment:POSTID_COMMENTID" (base64-encoded).
+ * Returns the decoded string (e.g., "1315106307381875_1315106457381860")
+ * or the original ID if decoding fails.
+ */
+function decodeCommentId(rawId: string): string {
+ try {
+ const decoded = Buffer.from(rawId, 'base64').toString('utf-8');
+ const match = decoded.match(/^comment:(.+)$/);
+ if (match) return match[1];
+ // If it decoded but doesn't match the pattern, still return decoded
+ if (decoded && !/^[A-Za-z0-9+/=]+$/.test(decoded)) return decoded;
+ } catch {
+ // not base64, return as-is
+ }
+ return rawId;
+}
+
 // ── Comment normalisation ──
 
 function normalizeComment(node: Record<string, unknown>): GroupPostComment | null {
-  // Extract id from several possible field names
-  const commentId =
-    getString(node.id) ??
-    getString(node.comment_id);
+ // Extract id from several possible field names
+ const rawCommentId =
+ getString(node.id) ??
+ getString(node.comment_id);
 
-  if (!commentId) {
-    return null;
-  }
+ if (!rawCommentId) {
+ return null;
+ }
 
-  // ── Parent ID ──
-  const parentNode =
-    asRecord(node.parent_comment) ??
-    asRecord(node.parent);
-  const parentId = getString(parentNode?.id) ?? null;
+ const commentId = decodeCommentId(rawCommentId);
+
+ // ── Parent ID ──
+ // Facebook nests the parent comment under different keys depending on the surface.
+ // For replies, the parent is the top-level comment they're replying to.
+ const parentNode =
+ asRecord(node.parent_comment) ??
+ asRecord(node.parent);
+ const rawParentId = getString(parentNode?.id) ?? null;
+ const parentId = rawParentId ? decodeCommentId(rawParentId) : null;
 
   // ── Author ──
   const authorNode =
@@ -168,5 +194,5 @@ export function parseGroupCommentFragments(fragments: GraphQLFragment[]): GroupP
     }
   }
 
-  return [...comments.values()];
+  return Array.from(comments.values());
 }

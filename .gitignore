@@ -18,6 +18,12 @@ coverage/
 .DS_Store
 .idea/
 .vscode/
+
+# Debug/investigation scripts (not production)
+scripts/debug_*
+scripts/test_*
+scripts/check_feedback_ids.ts
+search_groups.ts
 *.swp
 *.swo
 

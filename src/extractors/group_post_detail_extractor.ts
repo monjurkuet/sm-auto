@@ -185,8 +185,8 @@ async function scrollPostComments(
 // ── Post ID extraction from URL ──
 
 function extractPostIdFromUrl(url: string): string | null {
-  const match = url.match(/\/groups\/[^/]+\/posts\/(\d+)/);
-  return match?.[1] ?? null;
+ const match = url.match(/\/groups\/[^/]+\/(?:posts|permalink)\/(\d+)/);
+ return match?.[1] ?? null;
 }
 
 // ── Main extractor ──
@@ -265,9 +265,10 @@ export async function extractGroupPostDetail(
           : commentFragments;
         const comments = parseGroupCommentFragments(parserCommentFragments);
 
-        // Derive groupId from route definitions
-        const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
-        const groupId = routeIdentity.groupId ?? null;
+ // Derive groupId: prefer the URL (canonical), fall back to route definitions
+ const urlGroupId = postUrl.match(/\/groups\/([^/]+)\//)?.[1] ?? null;
+ const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
+ const groupId = urlGroupId ?? routeIdentity.groupId ?? null;
 
         // Total comment count: from the post metrics if available, else from parsed comments
         const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
