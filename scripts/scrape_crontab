@@ -1,13 +1,15 @@
-# Marketplace Scraper - three search queries, staggered every 10 min within each 30-min cycle
+# Marketplace Scraper - tiered schedule (data-driven, May 2026)
+#
+# Peak hours (6AM-11PM): every 1 hour, staggered by 20 min
+# Off-peak (11PM-6AM): every 2 hours, staggered by 20 min
+#
+# Rationale: 99.3% of listings per run are re-seen duplicates.
+# Only ~11 new listings per run. 88% of new listings appear daytime.
+# Tiered schedule cuts Chrome time ~58% (203 → ~85 min/day)
+# with only ~15-20% loss in ephemeral-listing capture (most were
+# missed even at 30-min frequency anyway).
 #
 # Scroll settings: max-scrolls=200, scroll-delay-ms=800 (defaults in script)
-# Override per-query: e.g. --max-scrolls 300 --scroll-delay-ms 1000
-#
-# Schedule:
-# At :00  - iphone (Dhaka)
-# At :10  - toyota cars (Dhaka)
-# At :20  - bikes (Dhaka)
-# Then repeats at :30, :40, :50
 
 SCRIPT="/root/codebase/sm-auto/scripts/scrape_and_report.sh"
 LOGDIR="/root/codebase/sm-auto/output/logs"
@@ -15,11 +17,22 @@ LOGDIR="/root/codebase/sm-auto/output/logs"
 # Boot: wait 60s, then run all three sequentially
 @reboot sleep 60 && ${SCRIPT} --query "iphone" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
 
-# Every 30 minutes: iphone (at :00 and :30)
-*/30 * * * * ${SCRIPT} --query "iphone" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+# === Peak hours: 6AM-10PM (hourly) ===
+# iphone at :00
+0 6-22 * * * ${SCRIPT} --query "iphone" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
 
-# Every 30 minutes offset +10: toyota cars (at :10 and :40)
-10,40 * * * * ${SCRIPT} --query "toyota cars" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+# toyota cars at :20
+20 6-22 * * * ${SCRIPT} --query "toyota cars" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
 
-# Every 30 minutes offset +20: bikes (at :20 and :50)
-20,50 * * * * ${SCRIPT} --query "bikes" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+# bikes at :40
+40 6-22 * * * ${SCRIPT} --query "bikes" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+
+# === Off-peak: 11PM-5AM (every 2 hours) ===
+# iphone at :00
+0 23,1,3,5 * * * ${SCRIPT} --query "iphone" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+
+# toyota cars at :20
+20 23,1,3,5 * * * ${SCRIPT} --query "toyota cars" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
+
+# bikes at :40
+40 23,1,3,5 * * * ${SCRIPT} --query "bikes" --location "Dhaka" >> ${LOGDIR}/cron.log 2>&1
