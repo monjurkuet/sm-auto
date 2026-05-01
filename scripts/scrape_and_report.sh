@@ -10,6 +10,7 @@ SCROLL_DELAY_MS=800
 # Telegram delivery target: group topic for marketplace reports
 TELEGRAM_CHAT_ID="${TELEGRAM_CHAT_ID:--1003974246097}"
 TELEGRAM_THREAD_ID="${TELEGRAM_THREAD_ID:-2}"
+NO_REPORT=0
 
 # ── Parse CLI args ──
 while [[ $# -gt 0 ]]; do
@@ -20,6 +21,7 @@ while [[ $# -gt 0 ]]; do
  --scroll-delay-ms) SCROLL_DELAY_MS="$2"; shift 2 ;;
  --chat-id) TELEGRAM_CHAT_ID="$2"; shift 2 ;;
  --thread-id) TELEGRAM_THREAD_ID="$2"; shift 2 ;;
+ --no-report) NO_REPORT=1; shift ;;
  *) echo "Unknown arg: $1" >&2; exit 1 ;;
  esac
 done
@@ -133,7 +135,10 @@ echo "[$(date)] Scraper exited with code: ${SCRAPER_EXIT}" | tee -a "${LOG_FILE}
 
 # ── Step 3: Generate summary from output ──
 SUMMARY=""
-if [ "${SCRAPER_EXIT}" -eq 0 ] && [ -f "${OUTPUT_FILE}" ]; then
+if [ "${NO_REPORT}" -eq 1 ]; then
+ echo "[$(date)] --no-report flag set; skipping report and Telegram notification." | tee -a "${LOG_FILE}"
+else
+ if [ "${SCRAPER_EXIT}" -eq 0 ] && [ -f "${OUTPUT_FILE}" ]; then
   export OUTPUT_FILE QUERY LOCATION
  SUMMARY=$(python3 << 'PYEOF'
 import json, datetime, os
@@ -393,9 +398,9 @@ lines.append(f"🕐 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 print("\n".join(lines))
 PYEOF
-  )
+ )
 else
-  SUMMARY="❌ Marketplace Scrape FAILED
+ SUMMARY="❌ Marketplace Scrape FAILED
 
 Query: ${QUERY} | Location: ${LOCATION}
 Exit code: ${SCRAPER_EXIT}
@@ -410,5 +415,6 @@ echo "${SUMMARY}" | tee -a "${LOG_FILE}"
 echo "[$(date)] Sending summary to Telegram..." | tee -a "${LOG_FILE}"
 send_telegram "${SUMMARY}"
 echo "[$(date)] Telegram notification sent." | tee -a "${LOG_FILE}"
+fi
 
 exit ${SCRAPER_EXIT}
