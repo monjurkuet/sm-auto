@@ -5,6 +5,8 @@ export const SCHEMA_VERSIONS = {
   marketplaceListing: '0.1.0',
   marketplaceSeller: '0.1.0',
   groupInfo: '0.1.0',
+  groupJoin: '0.1.0',
+ groupSearch: '0.1.0',
   groupPosts: '0.1.0',
   groupPostDetail: '0.1.0'
 } as const;

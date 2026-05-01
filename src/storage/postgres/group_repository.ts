@@ -4,6 +4,7 @@ import type {
   ExtractorResult,
   GroupAdmin,
   GroupInfoResult,
+  GroupJoinResult,
   GroupPost,
   GroupPostComment,
   GroupPostDetailResult,
@@ -627,6 +628,46 @@ export async function persistGroupPostDetailSurface(
       groupId,
       commentCount: result.data.comments.length,
       totalCommentCount: result.data.totalCommentCount
+    }
+  };
+}
+
+// ── Group Join Surface ──
+
+export async function persistGroupJoinSurface(
+  client: PoolClient,
+  scrapeRunId: string,
+  result: ExtractorResult<GroupJoinResult>
+): Promise<ScrapeRunCompletion> {
+  await client.query(
+    `
+    INSERT INTO scraper.facebook_group_join_scrapes (
+      scrape_run_id,
+      group_url,
+      membership_status,
+      previous_status,
+      action_taken,
+      scraped_at
+    ) VALUES ($1, $2, $3, $4, $5, $6)
+    `,
+    [
+      scrapeRunId,
+      result.data.url,
+      result.data.membershipStatus,
+      result.data.previousStatus,
+      result.data.actionTaken,
+      result.data.scrapedAt
+    ]
+  );
+
+  await insertArtifacts(client, scrapeRunId, result.artifacts);
+
+  return {
+    sourceUrl: result.data.url,
+    outputSummary: {
+      membershipStatus: result.data.membershipStatus,
+      previousStatus: result.data.previousStatus,
+      actionTaken: result.data.actionTaken
     }
   };
 }

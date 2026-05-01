@@ -239,6 +239,33 @@ export interface GroupPostsResult {
   scrapedAt: string;
 }
 
+// ── Group Join ──
+export type MembershipStatus = 'joined' | 'not_joined' | 'pending' | 'declined' | 'unknown';
+
+export interface GroupJoinResult {
+  url: string;
+  membershipStatus: MembershipStatus;
+  previousStatus: MembershipStatus | null;
+  actionTaken: 'joined' | 'requested' | 'skipped_questions' | 'none';
+  scrapedAt: string;
+}
+
+// ── Group Search ──
+export interface GroupSearchResult {
+  name: string;
+  url: string;
+  groupId: string | null;
+  memberCount: number | null;
+  privacyType: string | null;
+  description: string | null;
+}
+
+export interface GroupSearchResults {
+  query: string;
+  results: GroupSearchResult[];
+  scrapedAt: string;
+}
+
 // ── Group Post Detail ──
 export interface GroupPostComment {
   id: string | null;

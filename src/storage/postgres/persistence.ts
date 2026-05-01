@@ -3,7 +3,9 @@ import type { PoolClient } from 'pg';
 import { SCHEMA_VERSIONS } from '../schema_versions';
 import type {
   GroupInfoResult,
-  GroupPostDetailResult,
+ GroupJoinResult,
+ GroupSearchResults,
+ GroupPostDetailResult,
   GroupPostsResult,
   MarketplaceListingResult,
   MarketplaceSearchResult,
@@ -14,6 +16,7 @@ import type {
 import type { PostgresJobPersistence, ScrapeRunCompletion, ScrapeRunStartInput } from './persistence_contracts';
 import {
   persistGroupInfoSurface,
+  persistGroupJoinSurface,
   persistGroupPostDetailSurface,
   persistGroupPostsSurface
 } from './group_repository';
@@ -131,6 +134,33 @@ export function createGroupInfoPersistence(groupUrl: string): PostgresJobPersist
       inputPayload: { url: groupUrl }
     },
     persist: persistGroupInfoSurface,
+  };
+}
+
+export function createGroupJoinPersistence(groupUrl: string): PostgresJobPersistence<GroupJoinResult> {
+  return {
+    start: {
+      surface: 'group_join',
+      schemaVersion: SCHEMA_VERSIONS.groupJoin,
+      sourceUrl: groupUrl,
+      inputPayload: { url: groupUrl }
+    },
+    persist: persistGroupJoinSurface,
+  };
+}
+
+export function createGroupSearchPersistence(query: string): PostgresJobPersistence<GroupSearchResults> {
+  return {
+    start: {
+      surface: 'group_search',
+      schemaVersion: SCHEMA_VERSIONS.groupSearch,
+      sourceUrl: `https://www.facebook.com/search/groups/?q=${encodeURIComponent(query)}`,
+      inputPayload: { query }
+    },
+    persist: async (_client, _runId, _result): Promise<ScrapeRunCompletion> => {
+      // Group search results are used for discovery, not persisted as scrape data
+      return { outputSummary: { resultCount: 0 } };
+    },
   };
 }
 
