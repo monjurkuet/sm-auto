@@ -135,10 +135,9 @@ echo "[$(date)] Scraper exited with code: ${SCRAPER_EXIT}" | tee -a "${LOG_FILE}
 SUMMARY=""
 if [ "${SCRAPER_EXIT}" -eq 0 ] && [ -f "${OUTPUT_FILE}" ]; then
   export OUTPUT_FILE QUERY LOCATION
-  SUMMARY=$(python3 << 'PYEOF'
+ SUMMARY=$(python3 << 'PYEOF'
 import json, datetime, os
 from collections import Counter
-from statistics import median, quantiles
 
 OUTPUT_FILE = os.environ["OUTPUT_FILE"]
 QUERY = os.environ.get("QUERY", "N/A")
@@ -152,24 +151,7 @@ query = data.get("query", QUERY)
 location = data.get("location", LOCATION)
 url = data.get("searchUrl", "N/A")
 
-# ── Extract priced listings ──
-priced = []
-for l in listings:
-    p = l.get("price") or {}
-    amt = p.get("amount")
-    if amt is not None and amt > 0:
-        priced.append(l)
-
-prices = [l["price"]["amount"] for l in priced]
-cur_counter = Counter()
-for l in priced:
-    cur = (l.get("price") or {}).get("currency", "")
-    if cur:
-        cur_counter[cur] += 1
-# Use dominant currency for display
-cur_str = cur_counter.most_common(1)[0][0] if cur_counter else ""
-
-# ── Stats helper ──
+# ── Helpers ──
 def pct(sorted_vals, p):
     """p-th percentile from sorted list (0-100)."""
     if not sorted_vals:
@@ -183,163 +165,231 @@ def pct(sorted_vals, p):
 def fmt(v):
     return f"{v:,.0f}"
 
+def is_dhaka(city):
+    """Match both Bengali and English Dhaka variants."""
+    if not city:
+        return False
+    c = city.strip().lower()
+    return c in ("ঢাকা", "dhaka", "dhaka, bangladesh", "ঢাকা, বাংলাদেশ")
+
+# ── Per-query minimum price thresholds (BDT) ──
+# Derived from DB analysis: prices below these are junk/spam/accessories
+# that use BDT1 as "contact for price" or are car accessories posing as cars.
+QUERY_MIN_PRICE = {
+    "iphone": 1000,       # Real iPhones start at ~5K BDT even for very old models
+    "toyota cars": 50000, # Clear bimodal: accessories/parts <50K, actual cars >1L
+    "bikes": 500,         # Real bikes start ~1K, under 500 is mostly accessories/junk
+}
+DEFAULT_MIN_PRICE = 100   # Fallback for unknown queries
+
+# ── Per-query maximum price ceilings (BDT) ──
+# Listings above these are almost certainly typos or wrong-currency tags.
+# Toyota Prius at 32.5 crore BDT is clearly wrong, etc.
+QUERY_MAX_PRICE = {
+    "iphone": 200000,     # Even the newest iPhone Pro Max is ~180K BDT
+    "toyota cars": 10000000,  # 1 crore — ultra-luxury ceiling for Bangladesh market
+    "bikes": 500000,      # Very high-end bikes max out around 3-5L BDT
+}
+DEFAULT_MAX_PRICE = 50000000
+
+# ── Step 1: Filter to Dhaka only ──
+dhaka_listings = [l for l in listings if is_dhaka((l.get("location") or {}).get("city", ""))]
+non_dhaka_count = len(listings) - len(dhaka_listings)
+
+# ── Step 2: Extract priced Dhaka listings ──
+all_priced = []
+for l in dhaka_listings:
+    p = l.get("price") or {}
+    amt = p.get("amount")
+    if amt is not None and amt > 0:
+        all_priced.append(l)
+
+# ── Step 3: Apply junk price filter ──
+q_lower = QUERY_MIN_PRICE.get(query.lower(), DEFAULT_MIN_PRICE)
+q_upper = QUERY_MAX_PRICE.get(query.lower(), DEFAULT_MAX_PRICE)
+
+priced = []  # Clean, filtered listings
+junk_low = 0
+junk_high = 0
+non_bdt = 0
+for l in all_priced:
+    p = l.get("price") or {}
+    amt = p.get("amount")
+    cur = p.get("currency", "BDT")
+    # Skip non-BDT listings (they're almost all junk or wrong-currency)
+    if cur != "BDT":
+        non_bdt += 1
+        continue
+    if amt < q_lower:
+        junk_low += 1
+        continue
+    if amt > q_upper:
+        junk_high += 1
+        continue
+    priced.append(l)
+
+# ── Dominant currency (should be BDT after filter) ──
+cur_counter = Counter()
+for l in priced:
+    cur = (l.get("price") or {}).get("currency", "")
+    if cur:
+        cur_counter[cur] += 1
+cur_str = cur_counter.most_common(1)[0][0] if cur_counter else "BDT"
+
+prices = [l["price"]["amount"] for l in priced]
 sp = sorted(prices) if prices else []
 
 lines = []
-lines.append("<b>Marketplace Scrape Report</b>")
-lines.append("")
-lines.append(f"Query: {query}")
-lines.append(f"Location: {location}")
-lines.append(f"Total Listings: {len(listings)}")
-lines.append(f"With Valid Price: {len(priced)}")
-lines.append(f"URL: {url}")
+lines.append(f"<b>📊 Market Report — {query.title()}</b>")
+lines.append(f"📍 Dhaka | {datetime.datetime.now().strftime('%b %d, %H:%M')}")
 lines.append("")
 
-# ── Detailed Price Statistics ──
-if prices:
-    lines.append("<b>Price Statistics</b>")
-    lines.append(f"  Min:    {fmt(sp[0])} {cur_str}")
-    lines.append(f"  P10:    {fmt(pct(sp,10))} {cur_str}")
-    lines.append(f"  P25:    {fmt(pct(sp,25))} {cur_str}")
-    lines.append(f"  Median: {fmt(pct(sp,50))} {cur_str}")
-    lines.append(f"  P75:    {fmt(pct(sp,75))} {cur_str}")
-    lines.append(f"  P90:    {fmt(pct(sp,90))} {cur_str}")
-    lines.append(f"  Max:    {fmt(sp[-1])} {cur_str}")
-    lines.append(f"  Mean:   {fmt(sum(sp)/len(sp))} {cur_str}")
-    iqr = pct(sp,75) - pct(sp,25)
-    lines.append(f"  IQR:    {fmt(iqr)} {cur_str}")
-    lines.append(f"  StdDev: {fmt((sum((x-sum(sp)/len(sp))**2 for x in sp)/len(sp))**0.5)} {cur_str}")
-    lines.append("")
+# ── Data Quality Summary ──
+lines.append("<b>Data Quality</b>")
+lines.append(f" Raw listings: {len(listings)}")
+lines.append(f" Dhaka only: {len(dhaka_listings)}" + (f" ({non_dhaka_count} non-Dhaka filtered)" if non_dhaka_count > 0 else ""))
+lines.append(f" With price > 0: {len(all_priced)}")
+junk_total = junk_low + junk_high + non_bdt
+if junk_total > 0:
+    lines.append(f" Junk filtered: {junk_total} ({junk_low} below {fmt(q_lower)} | {junk_high} above {fmt(q_upper)} | {non_bdt} non-BDT)")
+lines.append(f" ✅ Clean listings: {len(priced)}")
+lines.append("")
 
-# ── Price Group Buckets ──
-if prices:
-    lines.append("<b>Price Groups</b>")
-    # Auto-generate sensible buckets based on data spread
-    p10 = pct(sp,10)
-    p25 = pct(sp,25)
-    p50 = pct(sp,50)
-    p75 = pct(sp,75)
-    p90 = pct(sp,90)
-    # Use quantile-based groups
-    buckets = [
-        (f"Under {fmt(p10)}", lambda a, b=p10: a < b),
-        (f"{fmt(p10)} - {fmt(p25)}", lambda a, lo=p10, hi=p25: lo <= a < hi),
-        (f"{fmt(p25)} - {fmt(p50)}", lambda a, lo=p25, hi=p50: lo <= a < hi),
-        (f"{fmt(p50)} - {fmt(p75)}", lambda a, lo=p50, hi=p75: lo <= a < hi),
-        (f"{fmt(p75)} - {fmt(p90)}", lambda a, lo=p75, hi=p90: lo <= a < hi),
-        (f"Over {fmt(p90)}", lambda a, b=p90: a >= b),
-    ]
-    for label, test in buckets:
-        grp = [l for l in priced if test(l["price"]["amount"])]
-        if not grp:
-            lines.append(f"  {label}: 0 listings")
-            continue
-        gp = sorted([l["price"]["amount"] for l in grp])
-        lines.append(f"  {label}: {len(grp)} listings | min {fmt(gp[0])} | med {fmt(pct(gp,50))} | avg {fmt(sum(gp)/len(gp))} | max {fmt(gp[-1])}")
-    lines.append("")
+if not priced:
+    lines.append("⚠️ No clean Dhaka listings found after filtering.")
+    lines.append(f"Run: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    print("\n".join(lines))
+    exit()
 
-# ── Top 5 Cheapest ──
-if priced:
-    sorted_listings = sorted(priced, key=lambda x: x["price"]["amount"])
-    lines.append("<b>Top 5 Cheapest</b>")
-    for i, l in enumerate(sorted_listings[:5], 1):
-        title = l.get("title", "N/A") or "N/A"
-        price_str = (l.get("price") or {}).get("formatted", "N/A")
-        seller = (l.get("seller") or {}).get("name", "N/A")
-        loc = (l.get("location") or {}).get("city", "N/A")
-        lines.append(f"  {i}. {title} - {price_str} | {seller} ({loc})")
-    lines.append("")
+# ── Price Statistics (on clean data) ──
+lines.append("<b>Price Statistics (Dhaka, cleaned)</b>")
+mean_val = sum(sp) / len(sp)
+stddev = (sum((x - mean_val) ** 2 for x in sp) / len(sp)) ** 0.5
+lines.append(f" Min: {fmt(sp[0])} | Max: {fmt(sp[-1])}")
+lines.append(f" P10: {fmt(pct(sp,10))} | P25: {fmt(pct(sp,25))}")
+lines.append(f" Median: {fmt(pct(sp,50))} | Mean: {fmt(mean_val)}")
+lines.append(f" P75: {fmt(pct(sp,75))} | P90: {fmt(pct(sp,90))}")
+iqr_val = pct(sp, 75) - pct(sp, 25)
+lines.append(f" IQR: {fmt(iqr_val)} | StdDev: {fmt(stddev)}")
+lines.append("")
 
-    sorted_desc = sorted(priced, key=lambda x: x["price"]["amount"], reverse=True)
-    lines.append("<b>Top 5 Most Expensive</b>")
-    for i, l in enumerate(sorted_desc[:5], 1):
-        title = l.get("title", "N/A") or "N/A"
-        price_str = (l.get("price") or {}).get("formatted", "N/A")
-        seller = (l.get("seller") or {}).get("name", "N/A")
-        loc = (l.get("location") or {}).get("city", "N/A")
-        lines.append(f"  {i}. {title} - {price_str} | {seller} ({loc})")
-    lines.append("")
+# ── Price Groups (quantile-based) ──
+lines.append("<b>Price Groups</b>")
+p10 = pct(sp, 10)
+p25 = pct(sp, 25)
+p50 = pct(sp, 50)
+p75 = pct(sp, 75)
+p90 = pct(sp, 90)
+buckets = [
+    (f"Budget (under {fmt(p25)})", lambda a, b=p25: a < b),
+    (f"Affordable ({fmt(p25)}–{fmt(p50)})", lambda a, lo=p25, hi=p50: lo <= a < hi),
+    (f"Mid-range ({fmt(p50)}–{fmt(p75)})", lambda a, lo=p50, hi=p75: lo <= a < hi),
+    (f"Premium ({fmt(p75)}–{fmt(p90)})", lambda a, lo=p75, hi=p90: lo <= a < hi),
+    (f"High-end ({fmt(p90)}+)", lambda a, b=p90: a >= b),
+]
+for label, test in buckets:
+    grp = [l for l in priced if test(l["price"]["amount"])]
+    if not grp:
+        continue
+    gp = sorted([l["price"]["amount"] for l in grp])
+    lines.append(f" {label}: {len(grp)} listings | med {fmt(pct(gp,50))} | avg {fmt(sum(gp)/len(gp))}")
+lines.append("")
 
-# ── Best Value (closest to median, i.e. fair price) ──
-if priced and len(priced) >= 3:
+# ── Top 5 Cheapest (real listings only) ──
+sorted_cheapest = sorted(priced, key=lambda x: x["price"]["amount"])
+lines.append("<b>💰 Top 5 Cheapest</b>")
+for i, l in enumerate(sorted_cheapest[:5], 1):
+    title = (l.get("title") or "N/A")[:40]
+    price_str = (l.get("price") or {}).get("formatted", "N/A")
+    seller = (l.get("seller") or {}).get("name", "N/A")
+    lines.append(f" {i}. {title} — {price_str} | {seller}")
+lines.append("")
+
+# ── Top 5 Most Expensive (capped, so these are real) ──
+sorted_priciest = sorted(priced, key=lambda x: x["price"]["amount"], reverse=True)
+lines.append("<b>💎 Top 5 Priciest</b>")
+for i, l in enumerate(sorted_priciest[:5], 1):
+    title = (l.get("title") or "N/A")[:40]
+    price_str = (l.get("price") or {}).get("formatted", "N/A")
+    seller = (l.get("seller") or {}).get("name", "N/A")
+    lines.append(f" {i}. {title} — {price_str} | {seller}")
+lines.append("")
+
+# ── Best Value (closest to median — fair price indicator) ──
+if len(priced) >= 5:
     med = pct(sp, 50)
     by_deviation = sorted(priced, key=lambda l: abs(l["price"]["amount"] - med))
-    lines.append("<b>Best Value (near median)</b>")
+    lines.append("<b>🎯 Best Value (near median)</b>")
     for i, l in enumerate(by_deviation[:3], 1):
-        title = l.get("title", "N/A") or "N/A"
+        title = (l.get("title") or "N/A")[:40]
         price_str = (l.get("price") or {}).get("formatted", "N/A")
-        seller = (l.get("seller") or {}).get("name", "N/A")
-        loc = (l.get("location") or {}).get("city", "N/A")
         dev = l["price"]["amount"] - med
         dev_str = f"+{fmt(dev)}" if dev >= 0 else fmt(dev)
-        lines.append(f"  {i}. {title} - {price_str} ({dev_str} vs med) | {seller} ({loc})")
+        seller = (l.get("seller") or {}).get("name", "N/A")
+        lines.append(f" {i}. {title} — {price_str} ({dev_str}) | {seller}")
     lines.append("")
 
-# ── Outliers (price > P75 + 1.5*IQR or < P25 - 1.5*IQR) ──
-if priced and len(priced) >= 10:
+# ── Outlier Detection (IQR fence on clean data) ──
+if len(priced) >= 10:
     q1 = pct(sp, 25)
     q3 = pct(sp, 75)
     iqr = q3 - q1
     upper_fence = q3 + 1.5 * iqr
-    lower_fence = q1 - 1.5 * iqr
+    lower_fence = max(q1 - 1.5 * iqr, q_lower)  # Don't flag below our known floor
     high_outliers = [l for l in priced if l["price"]["amount"] > upper_fence]
-    low_outliers = [l for l in priced if l["price"]["amount"] < max(lower_fence, 0)]
+    low_outliers = [l for l in priced if l["price"]["amount"] < lower_fence]
     if high_outliers or low_outliers:
-        lines.append("<b>Outliers</b>")
-        lines.append(f"  Normal range: {fmt(max(lower_fence,0))} - {fmt(upper_fence)} {cur_str}")
-        lines.append(f"  High outliers: {len(high_outliers)} | Low outliers: {len(low_outliers)}")
+        lines.append("<b>⚡ Outliers (IQR fence)</b>")
+        lines.append(f" Normal range: {fmt(lower_fence)}–{fmt(upper_fence)} {cur_str}")
         if high_outliers:
-            lines.append(f"  Priciest outlier: {high_outliers[0].get('title','?')} at {high_outliers[0]['price']['formatted']}")
+            lines.append(f" {len(high_outliers)} above fence — priciest: {(high_outliers[0].get('title') or '?')[:35]} at {high_outliers[0]['price']['formatted']}")
         if low_outliers:
-            lo = sorted(low_outliers, key=lambda x: x["price"]["amount"])
-            lines.append(f"  Cheapest outlier: {lo[0].get('title','?')} at {lo[0]['price']['formatted']}")
+            lo_sorted = sorted(low_outliers, key=lambda x: x["price"]["amount"])
+            lines.append(f" {len(low_outliers)} below fence — cheapest: {(lo_sorted[0].get('title') or '?')[:35]} at {lo_sorted[0]['price']['formatted']}")
         lines.append("")
-
-# ── Top Locations ──
-if priced:
-    loc_counter = Counter()
-    loc_prices = {}
-    for l in priced:
-        city = (l.get("location") or {}).get("city") or "Unknown"
-        loc_counter[city] += 1
-        loc_prices.setdefault(city, []).append(l["price"]["amount"])
-    lines.append("<b>Top 5 Locations</b>")
-    for city, count in loc_counter.most_common(5):
-        cp = sorted(loc_prices[city])
-        lines.append(f"  {city}: {count} listings | med {fmt(pct(cp,50))} | avg {fmt(sum(cp)/len(cp))}")
-    lines.append("")
 
 # ── Delivery Options ──
-if priced:
-    del_counter = Counter()
-    del_prices = {}
-    for l in priced:
-        for d in l.get("deliveryOptions", []):
-            del_counter[d] += 1
-            del_prices.setdefault(d, []).append(l["price"]["amount"])
-    if del_counter:
-        lines.append("<b>Delivery Options</b>")
-        for opt, count in del_counter.most_common():
-            op = sorted(del_prices[opt])
-            lines.append(f"  {opt}: {count} | med {fmt(pct(op,50))} | avg {fmt(sum(op)/len(op))}")
-        lines.append("")
+del_counter = Counter()
+del_prices = {}
+for l in priced:
+    for d in l.get("deliveryOptions", []):
+        del_counter[d] += 1
+        del_prices.setdefault(d, []).append(l["price"]["amount"])
+if del_counter:
+    lines.append("<b>🚚 Delivery Options</b>")
+    for opt, count in del_counter.most_common():
+        op = sorted(del_prices[opt])
+        opt_label = {"IN_PERSON": "Meetup", "SHIPPING_OFFSITE": "Shipping", "DOOR_PICKUP": "Door Pickup"}.get(opt, opt)
+        lines.append(f" {opt_label}: {count} ({count*100//len(priced)}%) | med {fmt(pct(op,50))}")
+    lines.append("")
 
-# ── Price-per-seller uniqueness (duplicate detection) ──
-if priced and len(priced) >= 5:
+# ── Repeat Sellers ──
+if len(priced) >= 5:
     seller_counter = Counter()
     for l in priced:
         sid = (l.get("seller") or {}).get("id") or "unknown"
         seller_counter[sid] += 1
     repeat_sellers = {s: c for s, c in seller_counter.items() if c > 1}
     if repeat_sellers:
-        lines.append(f"<b>Repeat Sellers</b>")
-        lines.append(f"  {len(repeat_sellers)} sellers with 2+ listings (top 3):")
+        lines.append(f"<b>👤 Repeat Sellers</b>")
+        lines.append(f" {len(repeat_sellers)} sellers with 2+ listings (top 3):")
         for sid, count in sorted(repeat_sellers.items(), key=lambda x: -x[1])[:3]:
             name = next((l.get("seller",{}).get("name","?") for l in priced if (l.get("seller") or {}).get("id") == sid), "?")
-            lines.append(f"  - {name}: {count} listings")
+            lines.append(f" — {name}: {count} listings")
         lines.append("")
 
-lines.append(f"Run: {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+# ── Junk Breakdown (transparency) ──
+if junk_total > 0:
+    lines.append("<b>🚫 Filtered Junk</b>")
+    if junk_low > 0:
+        lines.append(f" {junk_low} listings below {fmt(q_lower)} {cur_str} (spam/accessories)")
+    if junk_high > 0:
+        lines.append(f" {junk_high} listings above {fmt(q_upper)} {cur_str} (typos/wrong currency)")
+    if non_bdt > 0:
+        lines.append(f" {non_bdt} non-BDT listings (unreliable for BDT market)")
+    lines.append("")
+
+lines.append(f"🕐 {datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 
 print("\n".join(lines))
 PYEOF
