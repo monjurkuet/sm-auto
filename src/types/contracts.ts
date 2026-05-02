@@ -230,6 +230,7 @@ export interface GroupPost {
     shares: number | null;
   };
   isApproved: boolean | null;
+  provenance?: Record<string, DataProvenance>;
 }
 
 export interface GroupPostsResult {
@@ -280,6 +281,7 @@ export interface GroupPostComment {
     reactions: number | null;
     replies: number | null;
   };
+  provenance?: Record<string, DataProvenance>;
 }
 
 export interface GroupPostDetailResult {
@@ -290,4 +292,5 @@ export interface GroupPostDetailResult {
   comments: GroupPostComment[];
   totalCommentCount: number | null;
   scrapedAt: string;
+  provenance?: Record<string, DataProvenance>;
 }

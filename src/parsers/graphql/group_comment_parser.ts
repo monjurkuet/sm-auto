@@ -1,5 +1,5 @@
 import type { GraphQLFragment, GroupPostComment } from '../../types/contracts';
-import { deepVisit, asRecord, getString, getNumber } from './shared_graphql_utils';
+import { deepVisit, asRecord, getString, getNumber, parseI18nCount } from './shared_graphql_utils';
 
 // ── Fragment collection ──
 
@@ -153,21 +153,22 @@ function normalizeComment(node: Record<string, unknown>): GroupPostComment | nul
  }
  }
 
- // Fallback: direct fields
- if (reactions === null) {
- const rc = asRecord(node.reaction_count);
- if (rc) {
- reactions = getNumber(rc.count);
- } else {
- reactions = getNumber(node.reaction_count);
- }
- }
+  // Fallback: direct fields
+  if (reactions === null) {
+    const rc = asRecord(node.reaction_count);
+    if (rc) {
+      reactions = getNumber(rc.count);
+    } else {
+      reactions = getNumber(node.reaction_count) ?? parseI18nCount(node.i18n_reaction_count);
+    }
+  }
 
- if (replies === null) {
- replies =
- getNumber(node.reply_count) ??
- getNumber(node.comment_count);
- }
+  if (replies === null) {
+    replies =
+      getNumber(node.reply_count) ??
+      getNumber(node.comment_count) ??
+      parseI18nCount(node.i18n_comment_count);
+  }
 
  return {
  id: commentId,

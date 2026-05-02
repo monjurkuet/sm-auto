@@ -1,4 +1,4 @@
-import type { GroupPost } from '../types/contracts';
+import type { GroupPost, DataProvenance } from '../types/contracts';
 import type { PostMetricSnapshot } from '../parsers/dom/post_dom_parser';
 
 function normalizeText(text: string | null): string {
@@ -48,15 +48,25 @@ export function normalizeGroupPosts(
       }
     }
 
-    if (!bestMatch) return post;
+  if (!bestMatch) return post;
 
-    return {
-      ...post,
-      metrics: {
-        reactions: bestMatch.reactions ?? post.metrics.reactions,
-        comments: bestMatch.comments ?? post.metrics.comments,
-        shares: bestMatch.shares ?? post.metrics.shares,
-      },
-    };
+  const provenance: Record<string, DataProvenance> = { ...(post.provenance ?? {}) };
+
+  const merged: GroupPost = {
+    ...post,
+    metrics: {
+      reactions: bestMatch.reactions ?? post.metrics.reactions,
+      comments: bestMatch.comments ?? post.metrics.comments,
+      shares: bestMatch.shares ?? post.metrics.shares,
+    },
+  };
+
+  // Update provenance: if DOM provided the value, mark it
+  if (bestMatch.reactions !== null && post.metrics.reactions === null) provenance.reactions = 'dom';
+  if (bestMatch.comments !== null && post.metrics.comments === null) provenance.comments = 'dom';
+  if (bestMatch.shares !== null && post.metrics.shares === null) provenance.shares = 'dom';
+  if (Object.keys(provenance).length > 0) merged.provenance = provenance;
+
+  return merged;
   });
 }

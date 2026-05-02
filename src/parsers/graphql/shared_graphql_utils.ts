@@ -42,3 +42,19 @@ export function getNumber(value: unknown): number | null {
 
   return null;
 }
+
+/**
+ * Parse i18n-formatted count strings (e.g., "42", "1,234", "3K") into numbers.
+ * These appear on Feedback nodes as `i18n_comment_count`, `i18n_share_count`, etc.
+ * Removes commas, spaces, and non-numeric prefixes before parsing.
+ */
+export function parseI18nCount(value: unknown): number | null {
+  if (typeof value === 'number') return value;
+  if (typeof value === 'string') {
+    // Remove commas, spaces, and non-numeric prefixes
+    const cleaned = value.replace(/[,\s]/g, '').replace(/^[^\d]*/, '');
+    const num = parseInt(cleaned, 10);
+    return isNaN(num) ? null : num;
+  }
+  return null;
+}

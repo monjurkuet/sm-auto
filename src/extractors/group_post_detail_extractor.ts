@@ -12,6 +12,8 @@ import { extractGroupRouteIdentity } from '../parsers/embedded/group_route_ident
 
 import { collectGroupFeedFragments, parseGroupFeedFragments } from '../parsers/graphql/group_feed_parser';
 import { collectGroupCommentFragments, parseGroupCommentFragments } from '../parsers/graphql/group_comment_parser';
+import { snapshotPostMetrics } from '../parsers/dom/post_dom_parser';
+import { normalizeGroupPosts } from '../normalizers/group_post_normalizer';
 
 import type { ExtractorResult, GroupPost, GroupPostDetailResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
@@ -277,10 +279,26 @@ export async function extractGroupPostDetail(
  const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
  const groupId = urlGroupId ?? routeIdentity.groupId ?? null;
 
- // Total comment count: from the post metrics if available, else from parsed comments
- const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
+  // Total comment count: from the post metrics if available, else from parsed comments
+  const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
 
-        return {
+  // DOM metrics fallback: extract reaction/comment/share counts from the rendered page
+  // This catches metrics that GraphQL/embedded sources miss
+  try {
+    const domMetrics = await snapshotPostMetrics(page);
+    if (domMetrics.length > 0) {
+      const merged = normalizeGroupPosts([post], domMetrics);
+      if (merged.length > 0) {
+        post = merged[0];
+      }
+    }
+  } catch (e) {
+    context.logger.warn('DOM metrics snapshot failed for post detail, using GraphQL/embedded values', {
+      error: e instanceof Error ? e.message : String(e)
+    });
+  }
+
+  return {
           data: {
             postId: post.postId ?? postIdFromUrl,
             url: postUrl,

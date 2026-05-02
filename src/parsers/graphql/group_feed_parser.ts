@@ -1,5 +1,8 @@
-import type { GraphQLFragment, GroupPost } from '../../types/contracts';
-import { deepVisit, asRecord, getString, getNumber } from './shared_graphql_utils';
+import type { GraphQLFragment, GroupPost, DataProvenance } from '../../types/contracts';
+import { deepVisit, asRecord, getString, getNumber, parseI18nCount } from './shared_graphql_utils';
+
+// Re-export parseI18nCount for use by other parsers
+export { parseI18nCount } from './shared_graphql_utils';
 
 // ── Fragment collection ──
 
@@ -384,30 +387,36 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  }
  }
 
- // Comments: check comment_rendering_instance first (newer format)
- const commentRendering = asRecord(feedback.comment_rendering_instance);
- if (commentRendering) {
- const commentsNode = asRecord(commentRendering.comments);
- if (commentsNode) {
- comments = getNumber(commentsNode.total_count);
- }
- }
+  // Comments: check comment_rendering_instance first (newer format)
+  const commentRendering = asRecord(feedback.comment_rendering_instance);
+  if (commentRendering) {
+    const commentsNode = asRecord(commentRendering.comments);
+    if (commentsNode) {
+      comments = getNumber(commentsNode.total_count);
+    }
+  }
 
- // Fallback: direct comment count
- if (comments === null) {
- comments = getNumber(feedback.total_comment_count) ?? getNumber(feedback.comment_count);
- }
+  // Fallback: top_level_comment_count (preferred), then total_comment_count, comment_count, then i18n
+  if (comments === null) {
+    comments =
+      getNumber(feedback.top_level_comment_count) ??
+      getNumber(feedback.total_comment_count) ??
+      getNumber(feedback.comment_count) ??
+      parseI18nCount(feedback.i18n_comment_count);
+  }
 
- // Shares: check share_count.count (newer format)
- const shareCount = asRecord(feedback.share_count);
- if (shareCount) {
- shares = getNumber(shareCount.count);
- }
+  // Shares: check share_count.count (newer format)
+  const shareCount = asRecord(feedback.share_count);
+  if (shareCount) {
+    shares = getNumber(shareCount.count);
+  }
 
- // Fallback: direct share count
- if (shares === null) {
- shares = getNumber(feedback.share_count);
- }
+  // Fallback: direct share count, then i18n
+  if (shares === null) {
+    shares =
+      getNumber(feedback.share_count) ??
+      parseI18nCount(feedback.i18n_share_count);
+  }
  }
 
  // Strategy 2: Check comet_sections.feedback for UFI summary metrics
@@ -422,25 +431,31 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  if (ufiStory) {
  const feedbackContext = asRecord(ufiStory.feedback_context);
  const feedbackTarget = asRecord(feedbackContext?.feedback_target_with_context);
- if (feedbackTarget) {
- if (reactions === null) {
- const rc = asRecord(feedbackTarget.reaction_count);
- if (rc) reactions = getNumber(rc.count);
- }
- if (comments === null) {
- const cri = asRecord(feedbackTarget.comment_rendering_instance);
- if (cri) {
- const cn = asRecord(cri.comments);
- if (cn) comments = getNumber(cn.total_count);
- }
- if (comments === null) {
- comments = getNumber(feedbackTarget.total_comment_count);
- }
- }
- if (shares === null) {
- const sc = asRecord(feedbackTarget.share_count);
- if (sc) shares = getNumber(sc.count);
- }
+      if (feedbackTarget) {
+        if (reactions === null) {
+          const rc = asRecord(feedbackTarget.reaction_count);
+          if (rc) reactions = getNumber(rc.count);
+        }
+        if (comments === null) {
+          const cri = asRecord(feedbackTarget.comment_rendering_instance);
+          if (cri) {
+            const cn = asRecord(cri.comments);
+            if (cn) comments = getNumber(cn.total_count);
+          }
+          if (comments === null) {
+            comments =
+              getNumber(feedbackTarget.top_level_comment_count) ??
+              getNumber(feedbackTarget.total_comment_count) ??
+              parseI18nCount(feedbackTarget.i18n_comment_count);
+          }
+        }
+        if (shares === null) {
+          const sc = asRecord(feedbackTarget.share_count);
+          if (sc) shares = getNumber(sc.count);
+          if (shares === null) {
+            shares = parseI18nCount(feedbackTarget.i18n_share_count);
+          }
+        }
 
  // Nested UFI renderer: feedback_target_with_context.comet_ufi_summary_and_actions_renderer.feedback
  const targetUfi = asRecord(feedbackTarget.comet_ufi_summary_and_actions_renderer);
@@ -454,32 +469,42 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  reactions = getNumber(targetUfiFeedback.i18n_reaction_count);
  }
  }
- if (comments === null) {
- const tucri = asRecord(targetUfiFeedback.comment_rendering_instance);
- if (tucri) {
- const tucn = asRecord(tucri.comments);
- if (tucn) comments = getNumber(tucn.total_count);
- }
- }
- if (shares === null) {
- const tusc = asRecord(targetUfiFeedback.share_count);
- if (tusc) shares = getNumber(tusc.count);
- if (shares === null) {
- shares = getNumber(targetUfiFeedback.i18n_share_count);
- }
- }
- // Also check comments_count_summary_renderer.feedback
- const csr = asRecord(targetUfiFeedback.comments_count_summary_renderer);
- if (csr && comments === null) {
- const csrFeedback = asRecord(csr.feedback);
- if (csrFeedback) {
- const csrCri = asRecord(csrFeedback.comment_rendering_instance);
- if (csrCri) {
- const csrCn = asRecord(csrCri.comments);
- if (csrCn) comments = getNumber(csrCn.total_count);
- }
- }
- }
+        if (comments === null) {
+          const tucri = asRecord(targetUfiFeedback.comment_rendering_instance);
+          if (tucri) {
+            const tucn = asRecord(tucri.comments);
+            if (tucn) comments = getNumber(tucn.total_count);
+          }
+          if (comments === null) {
+            comments =
+              getNumber(targetUfiFeedback.top_level_comment_count) ??
+              parseI18nCount(targetUfiFeedback.i18n_comment_count);
+          }
+        }
+        if (shares === null) {
+          const tusc = asRecord(targetUfiFeedback.share_count);
+          if (tusc) shares = getNumber(tusc.count);
+          if (shares === null) {
+            shares = getNumber(targetUfiFeedback.i18n_share_count);
+          }
+        }
+        // Also check comments_count_summary_renderer.feedback
+        const csr = asRecord(targetUfiFeedback.comments_count_summary_renderer);
+        if (csr && comments === null) {
+          const csrFeedback = asRecord(csr.feedback);
+          if (csrFeedback) {
+            const csrCri = asRecord(csrFeedback.comment_rendering_instance);
+            if (csrCri) {
+              const csrCn = asRecord(csrCri.comments);
+              if (csrCn) comments = getNumber(csrCn.total_count);
+            }
+            if (comments === null) {
+              comments =
+                getNumber(csrFeedback.top_level_comment_count) ??
+                parseI18nCount(csrFeedback.i18n_comment_count);
+            }
+          }
+        }
  }
  }
  }
@@ -492,26 +517,32 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  if (feedbackStory) {
  // Try direct feedback on story
  const storyFeedback = asRecord(feedbackStory.feedback);
- if (storyFeedback) {
- if (reactions === null) {
- const rc = asRecord(storyFeedback.reaction_count);
- if (rc) reactions = getNumber(rc.count);
- }
- if (comments === null) {
- const cri = asRecord(storyFeedback.comment_rendering_instance);
- if (cri) {
- const cn = asRecord(cri.comments);
- if (cn) comments = getNumber(cn.total_count);
- }
- if (comments === null) {
- comments = getNumber(storyFeedback.total_comment_count);
- }
- }
- if (shares === null) {
- const sc = asRecord(storyFeedback.share_count);
- if (sc) shares = getNumber(sc.count);
- }
- }
+  if (storyFeedback) {
+  if (reactions === null) {
+  const rc = asRecord(storyFeedback.reaction_count);
+  if (rc) reactions = getNumber(rc.count);
+  }
+  if (comments === null) {
+  const cri = asRecord(storyFeedback.comment_rendering_instance);
+  if (cri) {
+  const cn = asRecord(cri.comments);
+  if (cn) comments = getNumber(cn.total_count);
+  }
+  if (comments === null) {
+  comments =
+  getNumber(storyFeedback.top_level_comment_count) ??
+  getNumber(storyFeedback.total_comment_count) ??
+  parseI18nCount(storyFeedback.i18n_comment_count);
+  }
+  }
+  if (shares === null) {
+  const sc = asRecord(storyFeedback.share_count);
+  if (sc) shares = getNumber(sc.count);
+  if (shares === null) {
+  shares = parseI18nCount(storyFeedback.i18n_share_count);
+  }
+  }
+  }
 
  // Nested UFI container via story
  const nestedUfiContainer = asRecord(feedbackStory.story_ufi_container);
@@ -520,52 +551,66 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  if (nestedUfiStory) {
  const nestedContext = asRecord(nestedUfiStory.feedback_context);
  const nestedTarget = asRecord(nestedContext?.feedback_target_with_context);
- if (nestedTarget) {
- if (reactions === null) {
- const rc = asRecord(nestedTarget.reaction_count);
- if (rc) reactions = getNumber(rc.count);
- }
- if (comments === null) {
- const cri = asRecord(nestedTarget.comment_rendering_instance);
- if (cri) {
- const cn = asRecord(cri.comments);
- if (cn) comments = getNumber(cn.total_count);
- }
- }
- if (shares === null) {
- const sc = asRecord(nestedTarget.share_count);
- if (sc) shares = getNumber(sc.count);
- }
+    if (nestedTarget) {
+    if (reactions === null) {
+    const rc = asRecord(nestedTarget.reaction_count);
+    if (rc) reactions = getNumber(rc.count);
+    }
+    if (comments === null) {
+    const cri = asRecord(nestedTarget.comment_rendering_instance);
+    if (cri) {
+    const cn = asRecord(cri.comments);
+    if (cn) comments = getNumber(cn.total_count);
+    }
+    if (comments === null) {
+    comments =
+    getNumber(nestedTarget.top_level_comment_count) ??
+    getNumber(nestedTarget.total_comment_count) ??
+    parseI18nCount(nestedTarget.i18n_comment_count);
+    }
+    }
+    if (shares === null) {
+    const sc = asRecord(nestedTarget.share_count);
+    if (sc) shares = getNumber(sc.count);
+    if (shares === null) {
+    shares = parseI18nCount(nestedTarget.i18n_share_count);
+    }
+    }
 
- // Also check UFI renderer on nested target
- const nestedTargetUfi = asRecord(nestedTarget.comet_ufi_summary_and_actions_renderer);
- if (nestedTargetUfi) {
- const nestedTargetUfiFeedback = asRecord(nestedTargetUfi.feedback);
- if (nestedTargetUfiFeedback) {
- if (reactions === null) {
- const nrc = asRecord(nestedTargetUfiFeedback.reaction_count);
- if (nrc) reactions = getNumber(nrc.count);
- if (reactions === null) {
- reactions = getNumber(nestedTargetUfiFeedback.i18n_reaction_count);
- }
- }
- if (comments === null) {
- const ncri = asRecord(nestedTargetUfiFeedback.comment_rendering_instance);
- if (ncri) {
- const ncn = asRecord(ncri.comments);
- if (ncn) comments = getNumber(ncn.total_count);
- }
- }
- if (shares === null) {
- const nsc = asRecord(nestedTargetUfiFeedback.share_count);
- if (nsc) shares = getNumber(nsc.count);
- if (shares === null) {
- shares = getNumber(nestedTargetUfiFeedback.i18n_share_count);
- }
- }
- }
- }
- }
+    // Also check UFI renderer on nested target
+    const nestedTargetUfi = asRecord(nestedTarget.comet_ufi_summary_and_actions_renderer);
+    if (nestedTargetUfi) {
+    const nestedTargetUfiFeedback = asRecord(nestedTargetUfi.feedback);
+    if (nestedTargetUfiFeedback) {
+    if (reactions === null) {
+    const nrc = asRecord(nestedTargetUfiFeedback.reaction_count);
+    if (nrc) reactions = getNumber(nrc.count);
+    if (reactions === null) {
+    reactions = getNumber(nestedTargetUfiFeedback.i18n_reaction_count);
+    }
+    }
+    if (comments === null) {
+    const ncri = asRecord(nestedTargetUfiFeedback.comment_rendering_instance);
+    if (ncri) {
+    const ncn = asRecord(ncri.comments);
+    if (ncn) comments = getNumber(ncn.total_count);
+    }
+    if (comments === null) {
+    comments =
+    getNumber(nestedTargetUfiFeedback.top_level_comment_count) ??
+    parseI18nCount(nestedTargetUfiFeedback.i18n_comment_count);
+    }
+    }
+    if (shares === null) {
+    const nsc = asRecord(nestedTargetUfiFeedback.share_count);
+    if (nsc) shares = getNumber(nsc.count);
+    if (shares === null) {
+    shares = getNumber(nestedTargetUfiFeedback.i18n_share_count);
+    }
+    }
+    }
+    }
+    }
  }
  }
  } // end Path B (if feedbackStory)
@@ -579,12 +624,15 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  reactions = getNumber(reactionSummary.count) ?? getNumber(reactionSummary.total_count);
  }
  }
- if (comments === null) {
- comments = getNumber(node.comment_count) ?? getNumber(node.total_comment_count);
- }
- if (shares === null) {
- shares = getNumber(node.share_count);
- }
+if (comments === null) {
+  comments =
+    getNumber(node.top_level_comment_count) ??
+    getNumber(node.comment_count) ??
+    getNumber(node.total_comment_count);
+}
+if (shares === null) {
+  shares = getNumber(node.share_count) ?? parseI18nCount(node.i18n_share_count);
+}
 
  // ── Created at ──
  // Check comet_sections.timestamp first (newer format)
@@ -603,27 +651,42 @@ function normalizeGroupFeedStory(node: Record<string, unknown>): GroupPost | nul
  }
  const createdAt = createdAtNum != null ? new Date(createdAtNum * 1000).toISOString() : null;
 
- // ── Permalink ──
- const permalink = getString(node.permalink_url) ?? getString(node.url);
+  // ── Permalink ──
+  const permalink = getString(node.permalink_url) ?? getString(node.url);
 
- return {
- id: getString(node.id) ?? postId,
- postId,
- permalink,
- createdAt,
- text,
- author: {
- id: authorId,
- name: authorName
- },
- media: dedupedMedia,
- metrics: {
- reactions,
- comments,
- shares
- },
- isApproved: null
- };
+  // ── Provenance ──
+  // Track which data source provided each field
+  const provenance: Record<string, DataProvenance> = {};
+
+  if (text !== null) provenance.text = 'graphql';
+  if (authorId !== null || authorName !== null) provenance.author = 'graphql';
+  if (postId) provenance.postId = 'graphql';
+  if (createdAt) provenance.createdAt = cometSections ? 'embedded_document' : 'graphql';
+  if (permalink) provenance.permalink = 'graphql';
+  if (reactions !== null) provenance.reactions = feedback ? 'graphql' : (cometSections ? 'embedded_document' : 'graphql');
+  if (comments !== null) provenance.comments = feedback ? 'graphql' : (cometSections ? 'embedded_document' : 'graphql');
+  if (shares !== null) provenance.shares = feedback ? 'graphql' : (cometSections ? 'embedded_document' : 'graphql');
+  if (dedupedMedia.length > 0) provenance.media = 'graphql';
+
+  return {
+    id: getString(node.id) ?? postId,
+    postId,
+    permalink,
+    createdAt,
+    text,
+    author: {
+      id: authorId,
+      name: authorName
+    },
+    media: dedupedMedia,
+    metrics: {
+      reactions,
+      comments,
+      shares
+    },
+    isApproved: null,
+    provenance
+  };
 }
 
 // ── Dedup scoring ──
@@ -679,21 +742,28 @@ function extractMetricsFromFeedbackNode(fb: Record<string, unknown>): { reaction
  if (rs) reactions = getNumber(rs.count) ?? getNumber(rs.total_count);
  }
 
- const cri = asRecord(fb.comment_rendering_instance);
- if (cri) {
- const cn = asRecord(cri.comments);
- if (cn) comments = getNumber(cn.total_count);
- }
- if (comments === null) {
- comments = getNumber(fb.total_comment_count) ?? getNumber(fb.comment_count);
- }
+  const cri = asRecord(fb.comment_rendering_instance);
+  if (cri) {
+    const cn = asRecord(cri.comments);
+    if (cn) comments = getNumber(cn.total_count);
+  }
+  if (comments === null) {
+    comments =
+      getNumber(fb.top_level_comment_count) ??
+      getNumber(fb.total_comment_count) ??
+      getNumber(fb.comment_count) ??
+      parseI18nCount(fb.i18n_comment_count);
+  }
 
- const sc = asRecord(fb.share_count);
- if (sc) shares = getNumber(sc.count);
- if (shares === null) {
- const rawShare = fb.share_count;
- shares = typeof rawShare === 'number' ? rawShare : null;
- }
+  const sc = asRecord(fb.share_count);
+  if (sc) shares = getNumber(sc.count);
+  if (shares === null) {
+    const rawShare = fb.share_count;
+    shares = typeof rawShare === 'number' ? rawShare : null;
+  }
+  if (shares === null) {
+    shares = parseI18nCount(fb.i18n_share_count);
+  }
 
  // Strategy 2: UFI wrapper — metrics inside comet_ufi_summary_and_actions_renderer.feedback
  const ufiRenderer = asRecord(fb.comet_ufi_summary_and_actions_renderer);
@@ -710,40 +780,51 @@ function extractMetricsFromFeedbackNode(fb: Record<string, unknown>): { reaction
  if (shares === null) {
  const ufiSC = asRecord(ufiFeedback.share_count);
  if (ufiSC) shares = getNumber(ufiSC.count);
- if (shares === null) {
- shares = getNumber(ufiFeedback.i18n_share_count);
- }
- }
- if (comments === null) {
- const ufiCri = asRecord(ufiFeedback.comment_rendering_instance);
- if (ufiCri) {
- const ufiCn = asRecord(ufiCri.comments);
- if (ufiCn) comments = getNumber(ufiCn.total_count);
- }
- if (comments === null) {
- comments = getNumber(ufiFeedback.total_comment_count) ?? getNumber(ufiFeedback.i18n_comment_count);
- }
- }
- }
- }
+      if (shares === null) {
+        shares = parseI18nCount(ufiFeedback.i18n_share_count);
+      }
+    }
+    if (comments === null) {
+      const ufiCri = asRecord(ufiFeedback.comment_rendering_instance);
+      if (ufiCri) {
+        const ufiCn = asRecord(ufiCri.comments);
+        if (ufiCn) comments = getNumber(ufiCn.total_count);
+      }
+      if (comments === null) {
+        comments =
+          getNumber(ufiFeedback.top_level_comment_count) ??
+          getNumber(ufiFeedback.total_comment_count) ??
+          parseI18nCount(ufiFeedback.i18n_comment_count);
+      }
+    }
+  }
+}
 
- // Strategy 3: Also check comments_count_summary_renderer.feedback
- const commentsRenderer = asRecord(fb.comments_count_summary_renderer);
- if (commentsRenderer) {
- const crFeedback = asRecord(commentsRenderer.feedback);
- if (crFeedback && comments === null) {
- const crCri = asRecord(crFeedback.comment_rendering_instance);
- if (crCri) {
- const crCn = asRecord(crCri.comments);
- if (crCn) comments = getNumber(crCn.total_count);
- }
- if (comments === null) {
- comments = getNumber(crFeedback.total_comment_count) ?? getNumber(crFeedback.i18n_comment_count);
- }
- }
- }
+  // Strategy 3: Also check comments_count_summary_renderer.feedback
+  const commentsRenderer = asRecord(fb.comments_count_summary_renderer);
+  if (commentsRenderer) {
+    const crFeedback = asRecord(commentsRenderer.feedback);
+    if (crFeedback && comments === null) {
+      const crCri = asRecord(crFeedback.comment_rendering_instance);
+      if (crCri) {
+        const crCn = asRecord(crCri.comments);
+        if (crCn) comments = getNumber(crCn.total_count);
+      }
+      if (comments === null) {
+        comments =
+          getNumber(crFeedback.top_level_comment_count) ??
+          getNumber(crFeedback.total_comment_count) ??
+          parseI18nCount(crFeedback.i18n_comment_count);
+      }
+    }
+  }
 
- return { reactions, comments, shares };
+  // Strategy 4: i18n fallbacks for reactions
+  if (reactions === null) {
+    reactions = parseI18nCount(fb.i18n_reaction_count);
+  }
+
+  return { reactions, comments, shares };
 }
 
 export function parseGroupFeedFragments(fragments: GraphQLFragment[]): GroupPost[] {

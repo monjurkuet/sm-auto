@@ -18,6 +18,11 @@ interface CleanupStats {
   deletedListingDeliveryOptions: number;
   deletedSellerScrapeListings: number;
   deletedSellerScrapes: number;
+  deletedGroupInfoScrapes: number;
+  deletedGroupPostScrapes: number;
+  deletedGroupCommentScrapes: number;
+  deletedGroupJoinScrapes: number;
+  staleRunsMarkedFailed: number;
 }
 
 async function parseDuration(value: string): Promise<number> {
@@ -43,7 +48,7 @@ async function parseDuration(value: string): Promise<number> {
   }
 }
 
-async function cleanupOldRuns(cutoffDate: Date, dryRun: boolean, verbose: boolean): Promise<CleanupStats> {
+async function cleanupOldRuns(cutoffDate: Date, dryRun: boolean, verbose: boolean, statusFilter: string[] = ['completed', 'failed']): Promise<CleanupStats> {
   const stats: CleanupStats = {
     deletedRuns: 0,
     deletedArtifacts: 0,
@@ -57,15 +62,20 @@ async function cleanupOldRuns(cutoffDate: Date, dryRun: boolean, verbose: boolea
     deletedListingImages: 0,
     deletedListingDeliveryOptions: 0,
     deletedSellerScrapeListings: 0,
-    deletedSellerScrapes: 0
+    deletedSellerScrapes: 0,
+    deletedGroupInfoScrapes: 0,
+    deletedGroupPostScrapes: 0,
+    deletedGroupCommentScrapes: 0,
+    deletedGroupJoinScrapes: 0,
+    staleRunsMarkedFailed: 0
   };
 
   const oldRuns = await query<{ id: string }>(
     `
-      SELECT id FROM scraper.scrape_runs
-      WHERE completed_at < $1 AND status IN ('completed', 'failed')
+    SELECT id FROM scraper.scrape_runs
+    WHERE completed_at < $1 AND status = ANY($2::text[])
     `,
-    [cutoffDate.toISOString()]
+    [cutoffDate.toISOString(), statusFilter]
   );
 
   if (oldRuns.rows.length === 0) {
@@ -190,6 +200,36 @@ async function cleanupOldRuns(cutoffDate: Date, dryRun: boolean, verbose: boolea
   await query('DELETE FROM scraper.marketplace_seller_scrape_listings WHERE scrape_run_id = ANY($1::uuid[])', [runIds]);
   await query('DELETE FROM scraper.marketplace_seller_scrapes WHERE scrape_run_id = ANY($1::uuid[])', [runIds]);
 
+  // Group surface tables
+  const groupInfoScrapesResult = await query<{ count: string }>(
+    'SELECT COUNT(*) FROM scraper.facebook_group_info_scrapes WHERE scrape_run_id = ANY($1::uuid[])',
+    [runIds]
+  );
+  stats.deletedGroupInfoScrapes = parseInt(groupInfoScrapesResult.rows[0].count, 10);
+
+  const groupPostScrapesResult = await query<{ count: string }>(
+    'SELECT COUNT(*) FROM scraper.facebook_group_post_scrapes WHERE scrape_run_id = ANY($1::uuid[])',
+    [runIds]
+  );
+  stats.deletedGroupPostScrapes = parseInt(groupPostScrapesResult.rows[0].count, 10);
+
+  const groupCommentScrapesResult = await query<{ count: string }>(
+    'SELECT COUNT(*) FROM scraper.facebook_group_comment_scrapes WHERE scrape_run_id = ANY($1::uuid[])',
+    [runIds]
+  );
+  stats.deletedGroupCommentScrapes = parseInt(groupCommentScrapesResult.rows[0].count, 10);
+
+  const groupJoinScrapesResult = await query<{ count: string }>(
+    'SELECT COUNT(*) FROM scraper.facebook_group_join_scrapes WHERE scrape_run_id = ANY($1::uuid[])',
+    [runIds]
+  );
+  stats.deletedGroupJoinScrapes = parseInt(groupJoinScrapesResult.rows[0].count, 10);
+
+  await query('DELETE FROM scraper.facebook_group_info_scrapes WHERE scrape_run_id = ANY($1::uuid[])', [runIds]);
+  await query('DELETE FROM scraper.facebook_group_post_scrapes WHERE scrape_run_id = ANY($1::uuid[])', [runIds]);
+  await query('DELETE FROM scraper.facebook_group_comment_scrapes WHERE scrape_run_id = ANY($1::uuid[])', [runIds]);
+  await query('DELETE FROM scraper.facebook_group_join_scrapes WHERE scrape_run_id = ANY($1::uuid[])', [runIds]);
+
   const deleteResult = await query('DELETE FROM scraper.scrape_runs WHERE id = ANY($1::uuid[]) RETURNING id', [runIds]);
   stats.deletedRuns = deleteResult.rows.length;
 
@@ -199,17 +239,24 @@ async function cleanupOldRuns(cutoffDate: Date, dryRun: boolean, verbose: boolea
 function printStats(stats: CleanupStats): void {
   console.log('');
   console.log('Cleanup Summary:');
-  console.log(`  Scrape runs deleted:          ${stats.deletedRuns}`);
-  console.log(`  Artifacts deleted:            ${stats.deletedArtifacts}`);
-  console.log(`  Page scrapes deleted:         ${stats.deletedPageScrapes}`);
-  console.log(`  Post scrapes deleted:         ${stats.deletedPostScrapes}`);
-  console.log(`  Post tags deleted:            ${stats.deletedPostTags}`);
-  console.log(`  Post media deleted:           ${stats.deletedPostMedia}`);
-  console.log(`  Search results deleted:       ${stats.deletedSearchResults}`);
-  console.log(`  Search scrapes deleted:       ${stats.deletedSearchScrapes}`);
-  console.log(`  Listing scrapes deleted:      ${stats.deletedListingScrapes}`);
-  console.log(`  Seller scrape listings:       ${stats.deletedSellerScrapeListings}`);
-  console.log(`  Seller scrapes deleted:       ${stats.deletedSellerScrapes}`);
+  console.log(`  Scrape runs deleted: ${stats.deletedRuns}`);
+  console.log(`  Artifacts deleted: ${stats.deletedArtifacts}`);
+  console.log(`  Page scrapes deleted: ${stats.deletedPageScrapes}`);
+  console.log(`  Post scrapes deleted: ${stats.deletedPostScrapes}`);
+  console.log(`  Post tags deleted: ${stats.deletedPostTags}`);
+  console.log(`  Post media deleted: ${stats.deletedPostMedia}`);
+  console.log(`  Search results deleted: ${stats.deletedSearchResults}`);
+  console.log(`  Search scrapes deleted: ${stats.deletedSearchScrapes}`);
+  console.log(`  Listing scrapes deleted: ${stats.deletedListingScrapes}`);
+  console.log(`  Seller scrape listings: ${stats.deletedSellerScrapeListings}`);
+  console.log(`  Seller scrapes deleted: ${stats.deletedSellerScrapes}`);
+  console.log(`  Group info scrapes deleted: ${stats.deletedGroupInfoScrapes}`);
+  console.log(`  Group post scrapes deleted: ${stats.deletedGroupPostScrapes}`);
+  console.log(`  Group comment scrapes deleted: ${stats.deletedGroupCommentScrapes}`);
+  console.log(`  Group join scrapes deleted: ${stats.deletedGroupJoinScrapes}`);
+  if (stats.staleRunsMarkedFailed > 0) {
+    console.log(`  Stale "running" runs marked failed: ${stats.staleRunsMarkedFailed}`);
+  }
 }
 
 async function main(): Promise<void> {
@@ -219,12 +266,23 @@ async function main(): Promise<void> {
       demandOption: true,
       describe: 'Delete runs older than this duration (e.g., "30d", "24h", "3600s")'
     })
-    .option('dry-run', {
-      type: 'boolean',
-      default: false,
-      describe: 'Show what would be deleted without actually deleting'
-    })
-    .option('verbose', {
+  .option('dry-run', {
+    type: 'boolean',
+    default: false,
+    describe: 'Show what would be deleted without actually deleting'
+  })
+  .option('status', {
+    type: 'string',
+    choices: ['completed', 'failed', 'both'],
+    default: 'both',
+    describe: 'Only clean up runs with this status (default: both completed and failed)'
+  })
+  .option('stale-running', {
+    type: 'boolean',
+    default: false,
+    describe: 'Mark "running" runs older than the cutoff as "failed" before cleanup'
+  })
+  .option('verbose', {
       type: 'boolean',
       default: false,
       describe: 'Verbose output'
@@ -239,8 +297,64 @@ async function main(): Promise<void> {
   }
 
   await ensurePostgresReady();
-  const stats = await cleanupOldRuns(cutoffDate, args.dryRun, args.verbose);
-  printStats(stats);
+
+  const stats: CleanupStats = {
+    deletedRuns: 0,
+    deletedArtifacts: 0,
+    deletedPageScrapes: 0,
+    deletedPostScrapes: 0,
+    deletedPostTags: 0,
+    deletedPostMedia: 0,
+    deletedSearchResults: 0,
+    deletedSearchScrapes: 0,
+    deletedListingScrapes: 0,
+    deletedListingImages: 0,
+    deletedListingDeliveryOptions: 0,
+    deletedSellerScrapeListings: 0,
+    deletedSellerScrapes: 0,
+    deletedGroupInfoScrapes: 0,
+    deletedGroupPostScrapes: 0,
+    deletedGroupCommentScrapes: 0,
+    deletedGroupJoinScrapes: 0,
+    staleRunsMarkedFailed: 0
+  };
+
+  // Mark stale "running" runs as failed if requested
+  if (args.staleRunning && !args.dryRun) {
+    const staleResult = await query<{ id: string }>(
+      `UPDATE scraper.scrape_runs
+       SET status = 'failed', error_message = 'Marked failed by cleanup: stale running run'
+       WHERE status = 'running' AND started_at < $1
+       RETURNING id`,
+      [cutoffDate.toISOString()]
+    );
+    stats.staleRunsMarkedFailed = staleResult.rows.length;
+    if (args.verbose && stats.staleRunsMarkedFailed > 0) {
+      console.log(`Marked ${stats.staleRunsMarkedFailed} stale "running" runs as failed.`);
+    }
+  } else if (args.staleRunning && args.dryRun) {
+    const staleCount = await query<{ count: string }>(
+      `SELECT COUNT(*) FROM scraper.scrape_runs
+       WHERE status = 'running' AND started_at < $1`,
+      [cutoffDate.toISOString()]
+    );
+    const count = parseInt(staleCount.rows[0].count, 10);
+    if (count > 0) {
+      console.log(`DRY RUN: Would mark ${count} stale "running" runs as failed.`);
+    }
+  }
+
+  // Build status filter for cleanup
+  const statusFilter = args.status === 'both'
+    ? ['completed', 'failed']
+    : [args.status];
+
+  const cleanupStats = await cleanupOldRuns(cutoffDate, args.dryRun, args.verbose, statusFilter);
+
+  // Merge stale-runs count into the cleanup stats
+  cleanupStats.staleRunsMarkedFailed = stats.staleRunsMarkedFailed;
+
+  printStats(cleanupStats);
 }
 
 void main()

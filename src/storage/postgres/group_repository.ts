@@ -280,6 +280,7 @@ export async function upsertGroupPosts(
   const commentCounts = posts.map((p) => p.metrics?.comments ?? null);
   const shareCounts = posts.map((p) => p.metrics?.shares ?? null);
   const latestPayloads = posts.map((p) => toJsonb(p));
+  const provenances = posts.map((p) => p.provenance ? JSON.stringify(p.provenance) : null);
 
   await client.query(
     `
@@ -296,55 +297,59 @@ export async function upsertGroupPosts(
       is_approved,
       reaction_count,
       comment_count,
-      share_count,
-      last_seen_at,
-      latest_payload
-    )
-    SELECT
-      input.post_id,
-      $1,
-      input.author_id,
-      input.author_name,
-      input.permalink,
-      input.created_at,
-      input.text_content,
-      input.has_attachments,
-      input.attachment_type,
-      input.is_approved,
-      input.reaction_count,
-      input.comment_count,
-      input.share_count,
-      now(),
-      input.latest_payload
-    FROM unnest(
-      $2::text[],
-      $3::text[],
-      $4::text[],
-      $5::text[],
-      $6::timestamptz[],
-      $7::text[],
-      $8::boolean[],
-      $9::text[],
-      $10::boolean[],
-      $11::int[],
-      $12::int[],
-      $13::int[],
-      $14::jsonb[]
-    ) AS input(
-      post_id,
-      permalink,
-      author_id,
-      author_name,
-      created_at,
-      text_content,
-      has_attachments,
-      attachment_type,
-      is_approved,
-      reaction_count,
-      comment_count,
-      share_count,
-      latest_payload
-    )
+  share_count,
+  last_seen_at,
+  latest_payload,
+  provenance
+)
+SELECT
+  input.post_id,
+  $1,
+  input.author_id,
+  input.author_name,
+  input.permalink,
+  input.created_at,
+  input.text_content,
+  input.has_attachments,
+  input.attachment_type,
+  input.is_approved,
+  input.reaction_count,
+  input.comment_count,
+  input.share_count,
+  now(),
+  input.latest_payload,
+  input.provenance::jsonb
+FROM unnest(
+  $2::text[],
+  $3::text[],
+  $4::text[],
+  $5::text[],
+  $6::timestamptz[],
+  $7::text[],
+  $8::boolean[],
+  $9::text[],
+  $10::boolean[],
+  $11::int[],
+  $12::int[],
+  $13::int[],
+  $14::jsonb[],
+  $15::text[]
+) AS input(
+  post_id,
+  permalink,
+  author_id,
+  author_name,
+  created_at,
+  text_content,
+  has_attachments,
+  attachment_type,
+  is_approved,
+  reaction_count,
+  comment_count,
+  share_count,
+  latest_payload,
+  provenance
+)
     ON CONFLICT (post_id)
     DO UPDATE SET
       author_id = COALESCE(EXCLUDED.author_id, scraper.facebook_group_posts.author_id),
@@ -357,27 +362,29 @@ export async function upsertGroupPosts(
       is_approved = COALESCE(EXCLUDED.is_approved, scraper.facebook_group_posts.is_approved),
       reaction_count = COALESCE(EXCLUDED.reaction_count, scraper.facebook_group_posts.reaction_count),
       comment_count = COALESCE(EXCLUDED.comment_count, scraper.facebook_group_posts.comment_count),
-      share_count = COALESCE(EXCLUDED.share_count, scraper.facebook_group_posts.share_count),
-      last_seen_at = now(),
-      latest_payload = EXCLUDED.latest_payload
-    `,
-    [
-      groupId,
-      postIds,
-      permalinks,
-      authorIds,
-      authorNames,
-      createdAts,
-      textContents,
-      hasAttachments,
-      attachmentTypes,
-      isApproved,
-      reactionCounts,
-      commentCounts,
-      shareCounts,
-      latestPayloads
-    ]
-  );
+  share_count = COALESCE(EXCLUDED.share_count, scraper.facebook_group_posts.share_count),
+  last_seen_at = now(),
+  latest_payload = EXCLUDED.latest_payload,
+  provenance = COALESCE(EXCLUDED.provenance, scraper.facebook_group_posts.provenance)
+`,
+  [
+    groupId,
+    postIds,
+    permalinks,
+    authorIds,
+    authorNames,
+    createdAts,
+    textContents,
+    hasAttachments,
+    attachmentTypes,
+    isApproved,
+    reactionCounts,
+    commentCounts,
+    shareCounts,
+    latestPayloads,
+    provenances
+  ]
+);
 
   // Insert post_media for each post's media array
   for (const post of posts) {
