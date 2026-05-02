@@ -15,7 +15,7 @@ async function main(): Promise<void> {
   await runCli(context, {
     jobName: 'group-search',
     outputName: 'group_search.json',
-    run: (ctx) => extractGroupSearch(ctx, args.query, { maxScrolls: args['max-scrolls'] }),
+    run: (ctx) => extractGroupSearch(ctx, args.query),
     persistence: createGroupSearchPersistence(args.query)
   });
 }

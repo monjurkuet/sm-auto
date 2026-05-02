@@ -1,4 +1,4 @@
-# ── Facebook Group Monitor Configuration ──
+# Facebook Group Monitor Configuration
 
 # Global settings
 chrome_port: 9222
@@ -21,8 +21,8 @@ observations:
 # LLM decision endpoint (for join/classify/organic decisions)
 llm:
   base_url: https://llm.datasolved.org/v1
-  model: gpt-5.4-mini          # default model for classifications
-  strong_model: gpt-5.4        # for join decisions and complex reasoning
+  model: z-ai/glm-5.1
+  strong_model: z-ai/glm-5.1
   context_length: 262144
 
 # Delay settings (applied between ALL tasks)
@@ -36,7 +36,7 @@ delays:
   burst_pause_max_ms: 45000
   error_backoff_multiplier: 1.75
 
-# ── Phase Configuration ──
+# Phase Configuration
 phases:
   info_scrape:
     enabled: true
@@ -57,7 +57,7 @@ phases:
     limit: 30
 
   join_group:
-    enabled: false
+    enabled: true
     weight: 1
     max_per_run: 3
     min_join_interval_ms: 30000
@@ -65,7 +65,7 @@ phases:
     skip_if_questions: true
 
   search_groups:
-    enabled: false
+    enabled: true
     weight: 1
     max_per_run: 3
     max_scrolls: 5
@@ -90,9 +90,9 @@ phases:
     enabled: true
     weight: 1
 
-# ── Group-specific overrides ──
+# Group-specific overrides
 group_overrides:
   - group_id: "276632390946258"
     skip_posts_scrape: true
     skip_join: true
-    notes: "Private group — Growing Bulls Community"
+    notes: "Private group - Growing Bulls Community"

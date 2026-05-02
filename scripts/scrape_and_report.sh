@@ -80,8 +80,17 @@ send_telegram() {
  if [[ -n "${thread_id}" ]]; then
  curl_args+=( --data-urlencode "message_thread_id=${thread_id}" )
  fi
- curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
- "${curl_args[@]}" > /dev/null 2>&1 || true
+ local response
+ response=$(curl -s -X POST "https://api.telegram.org/bot${token}/sendMessage" \
+ "${curl_args[@]}" 2>&1)
+ local curl_exit=$?
+ if [[ $curl_exit -ne 0 ]]; then
+ echo "[$(date)] Telegram send FAILED: curl exit $curl_exit" | tee -a "${LOG_FILE}"
+ elif echo "$response" | python3 -c "import sys,json; d=json.load(sys.stdin); sys.exit(0 if d.get('ok') else 1)" 2>/dev/null; then
+ : # success
+ else
+ echo "[$(date)] Telegram send FAILED: $(echo "$response" | head -c 200)" | tee -a "${LOG_FILE}"
+ fi
 }
 
 # ── Step 1: Ensure Chrome is running with remote debugging ──

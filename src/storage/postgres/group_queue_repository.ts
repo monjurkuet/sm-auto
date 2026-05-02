@@ -31,11 +31,9 @@ export async function selectGroupPostsForDetailCrawl(
     `
     SELECT p.post_id, p.group_id, p.permalink
     FROM scraper.facebook_group_posts p
-    WHERE p.post_id NOT IN (
-      SELECT DISTINCT cs.post_id
-      FROM scraper.facebook_group_comment_scrapes cs
+    WHERE NOT EXISTS (
+      SELECT 1 FROM scraper.facebook_group_post_scrapes ps WHERE ps.post_id = p.post_id
     )
-    AND p.is_active IS NOT false
     ${groupFilter}
     ORDER BY p.last_seen_at DESC
     LIMIT $1 OFFSET $2
@@ -68,11 +66,9 @@ export async function countGroupPostsForDetailCrawl(
     `
     SELECT COUNT(*)::text AS count
     FROM scraper.facebook_group_posts p
-    WHERE p.post_id NOT IN (
-      SELECT DISTINCT cs.post_id
-      FROM scraper.facebook_group_comment_scrapes cs
+    WHERE NOT EXISTS (
+      SELECT 1 FROM scraper.facebook_group_post_scrapes ps WHERE ps.post_id = p.post_id
     )
-    AND p.is_active IS NOT false
     ${groupFilter}
     `,
     params

@@ -1,4 +1,4 @@
-import { readFileSync, existsSync } from 'node:path';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { parse as parseYaml } from 'yaml';
 
@@ -83,8 +83,8 @@ const DEFAULT_CONFIG: MonitorConfig = {
   observations: { enabled: true, repo_path: '/root/codebase/hermesagent', push_after_export: true },
   llm: {
     base_url: 'https://llm.datasolved.org/v1',
-    model: 'gpt-5.4-mini',
-    strong_model: 'gpt-5.4',
+  model: 'z-ai/glm-5.1',
+  strong_model: 'z-ai/glm-5.1',
     context_length: 262144,
   },
   delays: {
