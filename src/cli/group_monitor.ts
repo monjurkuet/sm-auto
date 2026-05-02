@@ -15,7 +15,7 @@
  *   bun run src/cli/group_monitor.ts --dry-run   # show what would be done
  */
 
-import { readFileSync } from 'node:fs';
+import { readFileSync, existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { execFile as execFileCb } from 'node:child_process';
 import { promisify } from 'node:util';
@@ -425,12 +425,21 @@ async function executeTask(
         break;
       }
 
-      case 'search_groups': {
-        logger.info(`[SEARCH] Searching for groups: "${task.query}"`);
-        const maxScrolls = config.phases.search_groups?.max_scrolls ?? 5;
-        await runBunCli('src/cli/scrape_group_search.ts', ['--query', task.query!, '--max-scrolls', String(maxScrolls)], config, verbose);
-        break;
-      }
+ case 'search_groups': {
+ logger.info(`[SEARCH] Searching for groups: "${task.query}"`);
+ const maxScrolls = config.phases.search_groups?.max_scrolls ?? 5;
+ const searchOutput = `output/group_search.json`;
+ await runBunCli('src/cli/scrape_group_search.ts', ['--query', task.query!, '--max-scrolls', String(maxScrolls)], config, verbose);
+
+ // Auto-register discovered groups if enabled
+ if (config.phases.search_groups?.discovery?.auto_register) {
+ const registered = await autoRegisterDiscoveredGroups(searchOutput, config);
+ if (registered > 0) {
+ logger.info(`[SEARCH] Auto-registered ${registered} new groups from "${task.query}"`);
+ }
+ }
+ break;
+ }
 
       case 'compute_vitality': {
         logger.info(`[VITALITY] Computing group vitality scores`);
@@ -443,8 +452,105 @@ async function executeTask(
   } catch (err) {
     const errorMessage = err instanceof Error ? err.message : String(err);
     logger.error(`[FAIL] ${task.type} failed: ${errorMessage}`);
-    return { task, success: false, durationMs: Date.now() - start, error: errorMessage };
-  }
+ return { task, success: false, durationMs: Date.now() - start, error: errorMessage };
+ }
+}
+
+// ── Auto-register discovered groups ──
+
+interface DiscoveredGroup {
+ name: string;
+ url: string;
+ groupId: string | null;
+ memberCount: number | null;
+ privacyType: string | null;
+ description: string | null;
+}
+
+async function autoRegisterDiscoveredGroups(
+ outputPath: string,
+ config: MonitorConfig,
+): Promise<number> {
+ if (!existsSync(outputPath)) {
+ return 0;
+ }
+
+ let searchData: { results?: DiscoveredGroup[] };
+ try {
+ searchData = JSON.parse(readFileSync(outputPath, 'utf-8'));
+ } catch {
+ return 0;
+ }
+
+ const results = searchData.results ?? [];
+ if (results.length === 0) {
+ return 0;
+ }
+
+ const discovery = config.phases.search_groups?.discovery;
+ const minMembers = discovery?.min_members ?? 50;
+ const maxMembers = discovery?.max_members ?? 10_000_000;
+ const requirePublic = discovery?.require_public ?? false;
+ const defaultPriority = discovery?.default_priority ?? 5;
+
+ const pool = getPostgresPool();
+ if (!pool) {
+ return 0;
+ }
+
+ let registered = 0;
+ for (const group of results) {
+ // Filter by member count
+ if (group.memberCount !== null) {
+ if (group.memberCount < minMembers || group.memberCount > maxMembers) {
+ continue;
+ }
+ }
+
+ // Filter by privacy type
+ if (requirePublic && group.privacyType !== 'Public') {
+ continue;
+ }
+
+ // Build full URL
+ const groupUrl = group.url.startsWith('http')
+ ? group.url
+ : `https://www.facebook.com${group.url}`;
+
+ // Skip if already registered
+ const client = await pool.connect();
+ try {
+ const existing = await client.query(
+ `SELECT group_url FROM scraper.facebook_group_registry WHERE group_url = $1`,
+ [groupUrl]
+ );
+ if (existing.rows.length > 0) {
+ continue;
+ }
+
+ await client.query(
+ `
+ INSERT INTO scraper.facebook_group_registry (
+ group_url, group_id, name, priority, is_active,
+ membership_status, notes
+ ) VALUES ($1, $2, $3, $4, true, 'unknown', $5)
+ ON CONFLICT (group_url) DO NOTHING
+ `,
+ [
+ groupUrl,
+ group.groupId ?? null,
+ group.name || null,
+ defaultPriority,
+ `Auto-discovered via search`
+ ]
+ );
+ registered += 1;
+ } finally {
+ client.release();
+ }
+ }
+
+ return registered;
 }
 
 async function runBunCli(

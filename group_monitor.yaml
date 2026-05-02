@@ -67,18 +67,53 @@ phases:
   search_groups:
     enabled: true
     weight: 1
-    max_per_run: 3
+    max_per_run: 6
     max_scrolls: 5
     queries:
+      # Tier 1: Broad, highest yield
       - "crypto bangladesh"
+      - "bitcoin bangladesh"
+      - "cryptocurrency bangladesh"
+      - "crypto trading bd"
       - "bitcoin trading bd"
-      - "cryptocurrency community bangla"
+      - "crypto community bangla"
+      - "binance bangladesh"
+      - "crypto bd"
+      - "blockchain bangladesh"
+      - "crypto investment bangladesh"
+      # Tier 2: Specific coins / activities
+      - "ethereum bangladesh"
+      - "solana bangladesh"
+      - "usdt bangladesh"
+      - "tron bangladesh"
+      - "crypto mining bangladesh"
+      - "crypto signals bangladesh"
+      - "crypto airdrop bangladesh"
+      - "p2p crypto bangladesh"
+      - "crypto exchange bangladesh"
+      - "binance p2p bangladesh"
+      - "altcoin bangladesh"
+      - "defi bangladesh"
+      - "nft bangladesh"
+      - "web3 bangladesh"
+      # Tier 3: Regional / Bengali / niche
+      - "crypto dhaka"
+      - "crypto chittagong"
+      - "bitcoin dhaka"
+      - "ক্রিপ্টো বাংলাদেশ"
+      - "বিটকয়েন বাংলাদেশ"
+      - "bangla crypto trading"
+      - "bangla bitcoin"
+      - "forex crypto bangladesh"
+      - "crypto earning bangladesh"
+      - "crypto news bangladesh"
+      - "bangladesh crypto investors"
     discovery:
       min_members: 50
       max_members: 10000000
       require_public: false
       default_priority: 5
-      auto_register: false
+      auto_register: true
 
   check_membership:
     enabled: true
@@ -92,7 +127,7 @@ phases:
 
 # Group-specific overrides
 group_overrides:
- - group_id: "276632390946258"
-   skip_posts_scrape: false
-   skip_join: true
-   notes: "Private group - Growing Bulls Community (previously skip_posts_scrape=true, changed to false to allow scraping)"
+  - group_id: "276632390946258"
+    skip_posts_scrape: false
+    skip_join: true
+    notes: "Private group - Growing Bulls Community (previously skip_posts_scrape=true, changed to false to allow scraping)"
