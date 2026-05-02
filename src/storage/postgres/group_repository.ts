@@ -227,18 +227,32 @@ export async function persistGroupInfoSurface(
     await upsertGroupTags(client, groupId, result.data.tags);
   }
 
-  await client.query(
-    `
-    INSERT INTO scraper.facebook_group_info_scrapes (
-      scrape_run_id,
-      group_id,
-      scraped_at
-    ) VALUES ($1, $2, $3)
-    `,
-    [scrapeRunId, groupId, result.data.scrapedAt]
-  );
+ await client.query(
+ `
+ INSERT INTO scraper.facebook_group_info_scrapes (
+ scrape_run_id,
+ group_id,
+ scraped_at
+ ) VALUES ($1, $2, $3)
+ `,
+ [scrapeRunId, groupId, result.data.scrapedAt]
+ );
 
-  await insertArtifacts(client, scrapeRunId, result.artifacts);
+ // Update registry timestamps and group_id
+ if (groupId) {
+ await client.query(
+ `
+ UPDATE scraper.facebook_group_registry
+ SET last_info_scrape_at = now(),
+ group_id = COALESCE(group_id, $1)
+ WHERE group_id = $1
+ OR group_url = $2
+ `,
+ [groupId, result.data.url]
+ );
+ }
+
+ await insertArtifacts(client, scrapeRunId, result.artifacts);
 
   return {
     entityExternalId: groupId,
@@ -479,16 +493,28 @@ export async function persistGroupPostsSurface(
     );
   }
 
-  await insertArtifacts(client, scrapeRunId, result.artifacts);
+ await insertArtifacts(client, scrapeRunId, result.artifacts);
 
-  return {
-    entityExternalId: groupId,
-    sourceUrl: result.data.url,
-    outputSummary: {
-      groupId,
-      postCount: result.data.posts.length
-    }
-  };
+ // Update registry posts_scrape timestamp
+ if (groupId) {
+ await client.query(
+ `
+ UPDATE scraper.facebook_group_registry
+ SET last_posts_scrape_at = now()
+ WHERE group_id = $1
+ `,
+ [groupId]
+ );
+ }
+
+ return {
+ entityExternalId: groupId,
+ sourceUrl: result.data.url,
+ outputSummary: {
+ groupId,
+ postCount: result.data.posts.length
+ }
+ };
 }
 
 // ── Group Post Comments ──
@@ -667,14 +693,30 @@ export async function persistGroupJoinSurface(
     ]
   );
 
-  await insertArtifacts(client, scrapeRunId, result.artifacts);
+ // Update the registry with the latest membership status and check timestamp
+ // Derive the effective status: if we took a join action, reflect the post-action state
+ const effectiveStatus = result.data.actionTaken === 'joined' ? 'joined'
+ : result.data.actionTaken === 'requested' ? 'pending'
+ : result.data.membershipStatus;
 
-  return {
-    sourceUrl: result.data.url,
-    outputSummary: {
-      membershipStatus: result.data.membershipStatus,
-      previousStatus: result.data.previousStatus,
-      actionTaken: result.data.actionTaken
-    }
-  };
+ await client.query(
+ `
+ UPDATE scraper.facebook_group_registry
+ SET membership_status = $1,
+ join_status_checked_at = now()
+ WHERE group_url = $2
+ `,
+ [effectiveStatus, result.data.url]
+ );
+
+ await insertArtifacts(client, scrapeRunId, result.artifacts);
+
+ return {
+ sourceUrl: result.data.url,
+ outputSummary: {
+ membershipStatus: effectiveStatus,
+ previousStatus: result.data.previousStatus,
+ actionTaken: result.data.actionTaken
+ }
+ };
 }

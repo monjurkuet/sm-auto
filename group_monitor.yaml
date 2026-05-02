@@ -92,7 +92,7 @@ phases:
 
 # Group-specific overrides
 group_overrides:
-  - group_id: "276632390946258"
-    skip_posts_scrape: true
-    skip_join: true
-    notes: "Private group - Growing Bulls Community"
+ - group_id: "276632390946258"
+   skip_posts_scrape: false
+   skip_join: true
+   notes: "Private group - Growing Bulls Community (previously skip_posts_scrape=true, changed to false to allow scraping)"

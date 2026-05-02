@@ -143,13 +143,14 @@ async function clickJoinButton(page: Page): Promise<'joined' | 'requested' | 'sk
       return 'requested' as const;
     }
 
-    // If button disappeared or changed to "Joined", it was a direct join
-    if (!joinButtonStillVisible) {
-      return 'joined' as const;
-    }
+ // If button disappeared or changed to "Joined", it was a direct join
+ if (!joinButtonStillVisible) {
+ return 'joined' as const;
+ }
 
-    // Button still visible — might need more time
-    return 'joined' as const;
+ // Button still visible — likely a private group where join didn't take effect
+ // or needs more time. Don't claim 'joined' if the button is still there.
+ return 'none' as const;
   });
 
   return actionType;
