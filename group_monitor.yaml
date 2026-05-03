@@ -51,12 +51,12 @@ phases:
     default_interval_hours: 6
     max_scrolls: 15
 
- detail_crawl:
- enabled: true
- weight: 3
- limit: 30
- max_scrolls: 200
- scroll_delay_ms: 800
+  detail_crawl:
+   enabled: true
+   weight: 3
+   limit: 30
+   max_scrolls: 200
+   scroll_delay_ms: 800
 
   join_group:
     enabled: true
