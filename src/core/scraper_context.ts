@@ -17,9 +17,9 @@ export interface ScraperContext {
 export function createScraperContext(options: ScraperRuntimeOptions = {}): ScraperContext {
   return {
     chromePort: options.chromePort ?? 9222,
-    timeoutMs: options.timeoutMs ?? 90_000,
-    maxScrolls: options.maxScrolls ?? 8,
-    scrollDelayMs: options.scrollDelayMs ?? 2_000,
+    timeoutMs: options.timeoutMs ?? 300_000,
+    maxScrolls: options.maxScrolls ?? 200,
+    scrollDelayMs: options.scrollDelayMs ?? 800,
     outputDir: path.resolve(options.outputDir ?? path.join(process.cwd(), 'output')),
     includeArtifacts: options.includeArtifacts ?? false,
     persistDb: options.persistDb ?? true,

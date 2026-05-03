@@ -21,13 +21,14 @@ export interface DelayConfig {
 }
 
 export interface PhaseConfig {
-  enabled: boolean;
-  weight: number;
-  max_per_run?: number;
-  limit?: number;
-  default_interval_hours?: number;
-  max_scrolls?: number;
-  min_join_interval_ms?: number;
+ enabled: boolean;
+ weight: number;
+ max_per_run?: number;
+ limit?: number;
+ default_interval_hours?: number;
+ max_scrolls?: number;
+ scroll_delay_ms?: number;
+ min_join_interval_ms?: number;
   auto_join?: boolean;
   skip_if_questions?: boolean;
   queries?: string[];
@@ -100,7 +101,7 @@ const DEFAULT_CONFIG: MonitorConfig = {
   phases: {
     info_scrape: { enabled: true, weight: 1, max_per_run: 10, default_interval_hours: 24 },
     posts_scrape: { enabled: true, weight: 4, max_per_run: 10, default_interval_hours: 6, max_scrolls: 15 },
-    detail_crawl: { enabled: true, weight: 3, limit: 30 },
+    detail_crawl: { enabled: true, weight: 3, limit: 30, max_scrolls: 200, scroll_delay_ms: 800 },
     join_group: { enabled: false, weight: 1, max_per_run: 3, min_join_interval_ms: 30000, auto_join: false, skip_if_questions: true },
     search_groups: { enabled: false, weight: 1, max_per_run: 3, max_scrolls: 5, queries: [], discovery: { min_members: 50, max_members: 10000000, require_public: false, default_priority: 5, auto_register: false } },
     check_membership: { enabled: true, weight: 1, max_per_run: 10, stale_after_hours: 24 },

@@ -22,8 +22,9 @@ import type { ScraperContext } from '../core/scraper_context';
 const INITIAL_POST_SIGNAL_WAIT_MS = 15_000;
 const DIALOG_SCROLL_STEP = 500;
 const DIALOG_SCROLL_DELAY_MS = 800;
-const REPLY_EXPANSION_ROUNDS = 3;
-const MAX_REPLY_EXPANSIONS_PER_ROUND = 80;
+const REPLY_EXPANSION_ROUNDS = 5;
+const MAX_REPLY_EXPANSIONS_PER_ROUND = 100;
+const EXPAND_SCROLL_CYCLES = 5;
 
 // ── Post signal detection ──
 
@@ -254,61 +255,84 @@ async function expandReplyThreads(
 // ── Full comment loading pipeline ──
 
 /**
- * Complete pipeline for loading all comments in a dialog-based post detail page:
- * 1. Scroll down to load all top-level comments
- * 2. Expand reply threads iteratively
- * 3. Re-scroll after expansion to reveal newly loaded content
- * 4. Repeat until stable
+ * Complete pipeline for loading all comments in a dialog-based post detail page.
+ * Uses iterative scroll→expand→scroll cycles until no new comments appear.
+ * This handles deeply nested reply-replies: after expanding a reply thread,
+ * new "View all X replies" buttons may appear inside the expanded thread,
+ * requiring additional expansion rounds with scrolling to reveal them.
  */
 async function loadAllComments(
   page: Page,
   container: ElementHandle<Element>,
   context: ScraperContext
 ): Promise<{ scrollCount: number; replyExpansions: number; finalCount: CommentCountSnapshot }> {
-  // Phase 1: Scroll to load all top-level comments
-  const afterScroll = await scrollDialogComments(page, container, context);
-  const scrollCount = afterScroll.totalIds;
+  let totalReplyExpansions = 0;
 
-  // Phase 2: Expand reply threads with re-scroll between rounds
-  const replyExpansions = await expandReplyThreads(
-    page,
-    container,
-    REPLY_EXPANSION_ROUNDS,
-    MAX_REPLY_EXPANSIONS_PER_ROUND
-  );
+  // Phase 1: Initial scroll to load all top-level comments
+  const afterInitialScroll = await scrollDialogComments(page, container, context);
+  context.logger.info('Phase 1 complete: initial scroll', {
+    totalIds: afterInitialScroll.totalIds,
+  });
 
-  // Phase 3: Re-scroll after reply expansion to load more
-  let stalled = 0;
-  let prev = await countCommentsInContainer(container);
-  let reScrollCount = 0;
-  for (let i = 0; i < 50; i++) {
-    await container.evaluate((el) => { el.scrollTop += 500; });
-    await sleep(DIALOG_SCROLL_DELAY_MS);
-    reScrollCount++;
-    const current = await countCommentsInContainer(container);
-    if (current.totalIds === prev.totalIds) {
-      stalled++;
-    } else {
-      stalled = 0;
+  // Phase 2: Iterative expand→scroll cycles
+  // Each cycle: expand reply threads, then scroll to reveal more, then check for new buttons.
+  // Continue until a full cycle produces no new comments.
+  let prevTotalIds = afterInitialScroll.totalIds;
+
+  for (let cycle = 0; cycle < EXPAND_SCROLL_CYCLES; cycle++) {
+    // 2a: Expand all available reply threads
+    const expansions = await expandReplyThreads(
+      page,
+      container,
+      REPLY_EXPANSION_ROUNDS,
+      MAX_REPLY_EXPANSIONS_PER_ROUND
+    );
+    totalReplyExpansions += expansions;
+
+    // 2b: Scroll to reveal new content (including buttons in newly expanded threads)
+    let stalled = 0;
+    let prev = await countCommentsInContainer(container);
+    for (let i = 0; i < 50; i++) {
+      await container.evaluate((el) => { el.scrollTop += 500; });
+      await sleep(DIALOG_SCROLL_DELAY_MS);
+      const current = await countCommentsInContainer(container);
+      if (current.totalIds === prev.totalIds) {
+        stalled++;
+      } else {
+        stalled = 0;
+      }
+      prev = current;
+      if (stalled >= 15) break;
     }
-    prev = current;
-    if (stalled >= 15) break;
-  }
 
-  // Phase 4: One more reply expansion pass after re-scroll
-  const finalExpansions = await expandReplyThreads(page, container, 2, 50);
+    // 2c: Check if this cycle produced new comments
+    const afterCycle = await countCommentsInContainer(container);
+    const newIds = afterCycle.totalIds - prevTotalIds;
+    
+    context.logger.info('Expand-scroll cycle complete', {
+      cycle: cycle + 1,
+      expansions,
+      newIds,
+      totalIds: afterCycle.totalIds,
+    });
+
+    if (newIds === 0 && expansions === 0) {
+      // No progress at all — stop cycling
+      break;
+    }
+    prevTotalIds = afterCycle.totalIds;
+  }
 
   const finalCount = await countCommentsInContainer(container);
 
   context.logger.info('Comment loading pipeline complete', {
-    afterInitialScroll: scrollCount,
-    replyExpansions: replyExpansions + finalExpansions,
-    reScrollCount,
+    afterInitialScroll: afterInitialScroll.totalIds,
+    totalReplyExpansions,
     finalTopLevel: finalCount.topLevelIds,
     finalTotal: finalCount.totalIds,
   });
 
-  return { scrollCount, replyExpansions: replyExpansions + finalExpansions, finalCount };
+  return { scrollCount: afterInitialScroll.totalIds, replyExpansions: totalReplyExpansions, finalCount };
 }
 
 // ── Post ID extraction from URL ──

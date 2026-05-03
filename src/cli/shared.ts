@@ -13,9 +13,9 @@ export function parseSharedOptions(argv = process.argv): ScraperContext {
     .option('output-dir', { type: 'string', default: './output' })
     .option('include-artifacts', { type: 'boolean', default: false })
     .option('persist-db', { type: 'boolean', default: true })
-    .option('timeout-ms', { type: 'number', default: 90_000 })
-    .option('max-scrolls', { type: 'number', default: 8 })
-    .option('scroll-delay-ms', { type: 'number', default: 2000 })
+    .option('timeout-ms', { type: 'number', default: 300_000 })
+ .option('max-scrolls', { type: 'number', default: 200 })
+ .option('scroll-delay-ms', { type: 'number', default: 800 })
     .parseSync();
 
   return createScraperContext({

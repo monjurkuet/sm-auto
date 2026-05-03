@@ -380,12 +380,14 @@ async function executeTask(
         break;
       }
 
-      case 'detail_crawl': {
-        const postUrl = task.permalink ?? buildGroupPostUrl(task.groupId!, task.postId!);
-        logger.info(`[DETAIL] Crawling post: ${task.postId}`);
-        await runBunCli('src/cli/scrape_group_post_detail.ts', ['--post-url', postUrl], config, verbose);
-        break;
-      }
+ case 'detail_crawl': {
+ const postUrl = task.permalink ?? buildGroupPostUrl(task.groupId!, task.postId!);
+ const maxScrolls = config.phases.detail_crawl?.max_scrolls ?? 200;
+ const scrollDelayMs = config.phases.detail_crawl?.scroll_delay_ms ?? 800;
+ logger.info(`[DETAIL] Crawling post: ${task.postId} (max-scrolls=${maxScrolls})`);
+ await runBunCli('src/cli/scrape_group_post_detail.ts', ['--post-url', postUrl, '--max-scrolls', String(maxScrolls), '--scroll-delay-ms', String(scrollDelayMs)], config, verbose);
+ break;
+ }
 
       case 'check_membership':
       case 'join_group': {
