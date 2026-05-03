@@ -505,6 +505,35 @@ export async function persistGroupPostsSurface(
  `,
  [groupId]
  );
+
+ // If we couldn't see the feed because we're not a member, update membership status
+ if (result.data.notMember) {
+ // Check the latest join scrape status for this group to determine correct state
+ const joinStatus = await client.query<{ action_taken: string; membership_status: string }>(
+ `SELECT action_taken, membership_status FROM scraper.facebook_group_join_scrapes
+ WHERE group_url = (SELECT group_url FROM scraper.facebook_group_registry WHERE group_id = $1)
+ ORDER BY scraped_at DESC LIMIT 1`,
+ [groupId]
+ );
+ const lastAction = joinStatus.rows[0]?.action_taken;
+ const lastMembership = joinStatus.rows[0]?.membership_status;
+
+ // If the most recent join scrape says 'requested' or 'pending', keep as pending
+ const effectiveStatus = (lastAction === 'requested' || lastMembership === 'pending')
+ ? 'pending' : 'not_joined';
+
+ await client.query(
+ `
+ UPDATE scraper.facebook_group_registry
+ SET membership_status = CASE
+ WHEN membership_status = 'joined' THEN membership_status
+ ELSE $2
+ END
+ WHERE group_id = $1 AND membership_status != 'joined'
+ `,
+ [groupId, effectiveStatus]
+ );
+ }
  }
 
  return {

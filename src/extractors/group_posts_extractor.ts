@@ -62,18 +62,18 @@ async function getGroupPostsProgressSnapshot(
  };
 }
 
-async function waitForGroupFeedSignals(page: Page, capture: GraphQLCapture, timeoutMs: number): Promise<void> {
+async function waitForGroupFeedSignals(page: Page, capture: GraphQLCapture, timeoutMs: number): Promise<'found' | 'not_member'> {
  const deadline = Date.now() + Math.min(timeoutMs, INITIAL_FEED_SIGNAL_WAIT_MS);
 
  while (Date.now() < deadline) {
  const fragmentCount = collectGroupFeedFragments(capture.registry.all()).length;
  if (fragmentCount > 0) {
- return;
+ return 'found';
  }
 
  const postLinkCount = await countGroupPostLinks(page).catch(() => 0);
  if (postLinkCount > 0) {
- return;
+ return 'found';
  }
 
  // Also check for Story nodes in the DOM's embedded data
@@ -89,10 +89,37 @@ async function waitForGroupFeedSignals(page: Page, capture: GraphQLCapture, time
  return false;
  });
  if (hasFeedUnit) {
- return;
+ return 'found';
  }
  } catch {
  // DOM check failure shouldn't block
+ }
+
+ // Check for "not a member" indicators — private groups we can't see
+ try {
+ const notMember = await page.evaluate(() => {
+ const allText = document.body.innerText ?? '';
+ // Facebook shows these messages when you're not a member of a private group
+ if (/this\s+group\s+is\s+private|only\s+members\s+can\s+see|join\s+this\s+group\s+to\s+see|your\s+membership\s+is\s+pending/i.test(allText)) {
+ return true;
+ }
+ // Also check for join/request-to-join/cancel-request button as a sign we can't see the feed
+ const buttons = Array.from(document.querySelectorAll('div[role="button"], span[role="button"]'));
+ const hasMembershipButton = buttons.some(btn =>
+ /join\s+group|request\s+to\s+join|cancel\s+request/i.test(btn.textContent ?? '')
+ );
+ // If there's a membership button AND no visible posts, we're likely not a member
+ if (hasMembershipButton) {
+ const postLinks = document.querySelectorAll('a[href*="/posts/"]');
+ return postLinks.length === 0;
+ }
+ return false;
+ });
+ if (notMember) {
+ return 'not_member';
+ }
+ } catch {
+ // Not-member detection failure shouldn't block
  }
 
  await sleep(250);
@@ -214,10 +241,36 @@ export async function extractGroupPosts(
       await routeCapture.attach(page);
       const disableRequestFiltering = await enableRequestFiltering(page, ['image', 'media', 'font']);
 
-      try {
-        await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
-        await waitForGroupFeedSignals(page, capture, context.timeoutMs);
-        const metricSnapshots = await snapshotPostMetrics(page);
+ try {
+ await page.goto(groupUrl, { waitUntil: 'domcontentloaded' });
+ const signalResult = await waitForGroupFeedSignals(page, capture, context.timeoutMs);
+
+ if (signalResult === 'not_member') {
+ // Private group we can't access — return empty result instead of hard-failing
+ const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
+ return {
+ data: {
+ groupId: routeIdentity.groupId ?? null,
+ url: groupUrl,
+ posts: [],
+ scrapedAt: new Date().toISOString(),
+ notMember: true
+ },
+ artifacts: {
+ graphql_summary: summarizeGraphqlFragments([]),
+ route_capture_summary: {
+ responseCount: routeCapture.records.length,
+ routeCount: routeCapture.records.flatMap(r => r.routes).length,
+ groupId: routeIdentity.groupId ?? null,
+ vanitySlug: routeIdentity.vanitySlug
+ },
+ dom_metrics_summary: { metricEntryCount: 0, postLinkCount: 0, postCount: 0 },
+ embedded_document_summary: null
+ }
+ };
+ }
+
+ const metricSnapshots = await snapshotPostMetrics(page);
         await scrollGroupPosts(page, capture, context);
         metricSnapshots.push(...(await snapshotPostMetrics(page)));
 

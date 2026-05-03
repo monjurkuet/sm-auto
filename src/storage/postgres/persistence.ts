@@ -150,18 +150,40 @@ export function createGroupJoinPersistence(groupUrl: string): PostgresJobPersist
 }
 
 export function createGroupSearchPersistence(query: string): PostgresJobPersistence<GroupSearchResults> {
-  return {
-    start: {
-      surface: 'group_search',
-      schemaVersion: SCHEMA_VERSIONS.groupSearch,
-      sourceUrl: `https://www.facebook.com/search/groups/?q=${encodeURIComponent(query)}`,
-      inputPayload: { query }
-    },
-    persist: async (_client, _runId, _result): Promise<ScrapeRunCompletion> => {
-      // Group search results are used for discovery, not persisted as scrape data
-      return { outputSummary: { resultCount: 0 } };
-    },
-  };
+ return {
+ start: {
+ surface: 'group_search',
+ schemaVersion: SCHEMA_VERSIONS.groupSearch,
+ sourceUrl: `https://www.facebook.com/search/groups/?q=${encodeURIComponent(query)}`,
+ inputPayload: { query }
+ },
+ persist: async (client, scrapeRunId, result): Promise<ScrapeRunCompletion> => {
+ const groups = result.data.results ?? [];
+ // Store search results as an artifact for later aggregation
+ const payload = JSON.stringify({
+ query: result.data.query,
+ results: groups.map(g => ({
+ name: g.name,
+ url: g.url,
+ groupId: g.groupId,
+ memberCount: g.memberCount,
+ privacyType: g.privacyType
+ }))
+ });
+
+ await client.query(
+ `
+ INSERT INTO scraper.scrape_artifacts (scrape_run_id, artifact_name, artifact_format, payload_text)
+ VALUES ($1, 'group_search_results', 'json', $2)
+ `,
+ [scrapeRunId, payload]
+ );
+
+ return {
+ outputSummary: { resultCount: groups.length, query: result.data.query }
+ };
+ },
+ };
 }
 
 export function createGroupPostsPersistence(groupUrl: string): PostgresJobPersistence<GroupPostsResult> {

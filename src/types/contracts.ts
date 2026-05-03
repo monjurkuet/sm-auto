@@ -234,10 +234,11 @@ export interface GroupPost {
 }
 
 export interface GroupPostsResult {
-  groupId: string | null;
-  url: string;
-  posts: GroupPost[];
-  scrapedAt: string;
+ groupId: string | null;
+ url: string;
+ posts: GroupPost[];
+ scrapedAt: string;
+ notMember?: boolean;
 }
 
 // ── Group Join ──

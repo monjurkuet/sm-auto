@@ -41,10 +41,10 @@ async function detectMembershipStatus(page: Page): Promise<MembershipStatus> {
       return 'declined' as MembershipStatus;
     }
 
-    // Check for pending status
-    if (/membership\s+pending|you'?ve?\s+requested\s+to\s+join|request\s+pending|request\s+sent/i.test(allText)) {
-      return 'pending' as MembershipStatus;
-    }
+ // Check for pending status
+ if (/membership\s+(is\s+)?pending|you'?ve?\s+requested\s+to\s+join|request\s+(is\s+)?pending|request\s+sent/i.test(allText)) {
+ return 'pending' as MembershipStatus;
+ }
 
     // Check for join / request-to-join button (means not joined)
     const buttons = Array.from(document.querySelectorAll('div[role="button"], span[role="button"]'));
@@ -177,16 +177,18 @@ export async function extractGroupJoin(
         // Detect initial membership status
         const previousStatus = await detectMembershipStatus(page);
 
-        let actionTaken: GroupJoinResult['actionTaken'] = 'none';
+ let actionTaken: GroupJoinResult['actionTaken'] = 'none';
 
-        // Only attempt to join if not already a member and not pending
-        if (previousStatus === 'not_joined') {
-          actionTaken = await clickJoinButton(page);
-        } else if (previousStatus === 'declined') {
-          // Don't attempt to re-join declined groups
-          actionTaken = 'none';
-        }
-        // For 'joined', 'pending', 'unknown' — take no action
+ // Only attempt to join if not already a member and not pending
+ // 'unknown' is treated like 'not_joined' — the page didn't show clear membership
+ // indicators, so we should try to find and click the join button.
+ if (previousStatus === 'not_joined' || previousStatus === 'unknown') {
+ actionTaken = await clickJoinButton(page);
+ } else if (previousStatus === 'declined') {
+ // Don't attempt to re-join declined groups
+ actionTaken = 'none';
+ }
+ // For 'joined', 'pending' — take no action
 
         // Wait a moment for any DOM updates after action
         if (actionTaken !== 'none') {

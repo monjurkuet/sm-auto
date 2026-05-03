@@ -262,18 +262,18 @@ function buildTaskQueue(
       }
     }
 
-    // Join group
-    if (phases.join_group?.enabled && (!phaseFilter || phaseFilter.has('join_group'))) {
-      if (group.membership_status === 'not_joined' && !groupOverride?.skip_join) {
-        tasks.push({
-          type: 'join_group',
-          groupId: group.group_id,
-          groupUrl: group.group_url,
-          groupName: group.name,
-          weight: phases.join_group.weight,
-        });
-      }
-    }
+ // Join group
+ if (phases.join_group?.enabled && (!phaseFilter || phaseFilter.has('join_group'))) {
+ if ((group.membership_status === 'not_joined' || group.membership_status === 'unknown') && !groupOverride?.skip_join) {
+ tasks.push({
+ type: 'join_group',
+ groupId: group.group_id,
+ groupUrl: group.group_url,
+ groupName: group.name,
+ weight: phases.join_group.weight,
+ });
+ }
+ }
   }
 
   // Detail crawl (batch, not per-group)
