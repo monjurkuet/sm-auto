@@ -1,4 +1,4 @@
-import type { Page } from 'puppeteer-core';
+import type { Page, ElementHandle } from 'puppeteer-core';
 
 import { ChromeClient } from '../browser/chrome_client';
 import { PageSession } from '../browser/page_session';
@@ -20,10 +20,10 @@ import type { ExtractorResult, GroupPost, GroupPostComment, GroupPostDetailResul
 import type { ScraperContext } from '../core/scraper_context';
 
 const INITIAL_POST_SIGNAL_WAIT_MS = 15_000;
-const SCROLL_PROGRESS_WAIT_MS = 1_500;
-const MAX_STALLED_SCROLLS = 10;
-const MAX_STALLED_SCROLLS_CAP = 25;
-const MAX_REPLY_EXPANSIONS = 50;
+const DIALOG_SCROLL_STEP = 500;
+const DIALOG_SCROLL_DELAY_MS = 800;
+const REPLY_EXPANSION_ROUNDS = 3;
+const MAX_REPLY_EXPANSIONS_PER_ROUND = 80;
 
 // ── Post signal detection ──
 
@@ -38,142 +38,152 @@ async function waitForPostSignals(page: Page, timeoutMs: number): Promise<void> 
         document.querySelectorAll('[aria-label*="reaction"], [aria-label*="Like"]').length > 0;
       const hasPostContent =
         document.querySelectorAll('[data-ad-preview="message"]').length > 0;
-      return hasComments || hasReactions || hasPostContent;
+      const hasDialog = document.querySelector('div[role="dialog"]') !== null;
+      const hasArticles = document.querySelectorAll('div[role="article"]').length > 0;
+      return hasComments || hasReactions || hasPostContent || hasDialog || hasArticles;
     });
 
     if (hasContent) return;
-    await sleep(250);
+    await sleep(500);
   }
 
   throw new Error('Timed out waiting for group post detail signals');
 }
 
-// ── Reply thread expansion ──
+// ── Dialog scroll container detection ──
 
-async function expandReplyThreads(page: Page, maxExpansions: number): Promise<number> {
-  let expanded = 0;
+/**
+ * Find the scrollable container that holds comments.
+ * 
+ * Facebook renders post detail pages in two layouts:
+ * 1. **Dialog mode**: post opens in a modal overlay (div[role="dialog"]) — 
+ *    the scrollable comment container is a child of the dialog.
+ * 2. **Full-page mode**: post loads as a standalone page — the scrollable 
+ *    comment container is inside [role="main"] or the page body.
+ * 
+ * In both cases, scrolling the page body (window.scrollBy) does NOT load 
+ * comments. We must find and scroll the specific container element.
+ */
+async function findDialogScrollContainer(page: Page): Promise<ElementHandle<Element> | null> {
+  const handle = await page.evaluateHandle(() => {
+    // Strategy 1: Look inside div[role="dialog"] first (dialog/modeal layout)
+    const dialog = document.querySelector('div[role="dialog"]');
+    const searchRoot = dialog ?? document.querySelector('[role="main"]') ?? document.body;
 
-  for (let i = 0; i < maxExpansions; i++) {
-    const clicked = await page.evaluate(() => {
-      const buttons = Array.from(
-        document.querySelectorAll('div[role="button"], span[role="button"]')
-      ).filter((el) => /replies|View more|Show more|Reply$/i.test(el.textContent?.trim() ?? ''));
+    const allDivs = Array.from(searchRoot.querySelectorAll('div')) as Element[];
+    let best: Element | null = null;
+    let maxArticles = 0;
 
-      if (buttons.length === 0) return false;
-      (buttons[0] as HTMLElement).click();
-      return true;
-    });
+    for (const div of allDivs) {
+      const style = getComputedStyle(div);
+      if (
+        (style.overflowY === 'auto' || style.overflowY === 'scroll') &&
+        div.scrollHeight > div.clientHeight + 50 &&
+        div !== document.body &&
+        div !== document.documentElement
+      ) {
+        const articleCount = div.querySelectorAll('div[role="article"]').length;
+        if (articleCount > maxArticles) {
+          maxArticles = articleCount;
+          best = div;
+        }
+      }
+    }
 
-    if (!clicked) break;
-    expanded++;
-    await sleep(800); // Wait for content to load
-  }
+    return best;
+  });
 
-  return expanded;
+  const element = handle.asElement();
+  if (!element) return null;
+  // Type assertion: evaluateHandle returns ElementHandle<Element> for DOM elements
+  return element as ElementHandle<Element>;
+}
+
+// ── Comment counting ──
+
+interface CommentCountSnapshot {
+  articles: number;
+  topLevelIds: number;
+  totalIds: number;
+}
+
+async function countCommentsInContainer(
+  container: ElementHandle<Element>
+): Promise<CommentCountSnapshot> {
+  return container.evaluate((el) => {
+    const topLevelIds = new Set<string>();
+    const allIds = new Set<string>();
+    const articles = Array.from(el.querySelectorAll('div[role="article"]')) as Element[];
+
+    for (const art of articles) {
+      for (const link of Array.from(art.querySelectorAll('a[href*="comment_id"]')) as Element[]) {
+        const href = link.getAttribute('href') ?? '';
+        const replyMatch = href.match(/reply_comment_id=(\d+)/);
+        const commentMatch = href.match(/comment_id=(\d+)/);
+
+        if (commentMatch) {
+          allIds.add(commentMatch[1]);
+          if (!replyMatch) topLevelIds.add(commentMatch[1]);
+        }
+        if (replyMatch) {
+          allIds.add(replyMatch[1]);
+        }
+      }
+    }
+
+    return { articles: articles.length, topLevelIds: topLevelIds.size, totalIds: allIds.size };
+  });
 }
 
 // ── Stall detection ──
 
 export function computeMaxStalledScrolls(maxScrolls: number): number {
+  // For dialog-based comment scrolling, Facebook loads comments in batches
+  // with large gaps between batches. Use a high stall threshold.
   if (maxScrolls >= 100) {
-    return Math.min(
-      MAX_STALLED_SCROLLS_CAP,
-      Math.max(MAX_STALLED_SCROLLS, Math.floor(maxScrolls / 10))
-    );
+    return Math.min(50, Math.max(25, Math.floor(maxScrolls / 5)));
   }
-
-  return MAX_STALLED_SCROLLS;
+  return 25;
 }
 
-// ── Comment scrolling ──
+// ── Dialog container scrolling ──
 
-interface CommentProgressSnapshot {
-  fragmentCount: number;
-  commentDomCount: number;
-  scrollHeight: number;
-}
-
-async function countDomComments(page: Page): Promise<number> {
-  return page.evaluate(() => {
-    const commentElements = document.querySelectorAll(
-      '[aria-label*="Comment"], [aria-label*="comment"], [data-commentid]'
-    );
-    return commentElements.length;
-  }).catch(() => 0);
-}
-
-async function getCommentProgressSnapshot(
+/**
+ * Scroll within the dialog's comment container to lazy-load all comments.
+ * This is the key function: Facebook loads comments incrementally as the
+ * dialog's internal scrollable container is scrolled, NOT the page body.
+ */
+async function scrollDialogComments(
   page: Page,
-  capture: GraphQLCapture
-): Promise<CommentProgressSnapshot> {
-  const [commentDomCount, scrollHeight] = await Promise.all([
-    countDomComments(page),
-    page.evaluate(() => document.body.scrollHeight).catch(() => 0)
-  ]);
-
-  return {
-    fragmentCount: collectGroupCommentFragments(capture.registry.all()).length,
-    commentDomCount,
-    scrollHeight
-  };
-}
-
-async function waitForCommentProgress(
-  page: Page,
-  previous: CommentProgressSnapshot,
-  timeoutMs: number
-): Promise<void> {
-  try {
-    await page.waitForFunction(
-      (previousHeight: number, previousCommentCount: number) => {
-        const commentElements = document.querySelectorAll(
-          '[aria-label*="Comment"], [aria-label*="comment"], [data-commentid]'
-        );
-        const currentCommentCount = commentElements.length;
-        return document.body.scrollHeight > previousHeight || currentCommentCount > previousCommentCount;
-      },
-      { timeout: timeoutMs },
-      previous.scrollHeight,
-      previous.commentDomCount
-    );
-  } catch {
-    // Stalls are expected once all comments have loaded
-  }
-}
-
-async function scrollPostComments(
-  page: Page,
-  capture: GraphQLCapture,
+  container: ElementHandle<Element>,
   context: ScraperContext
-): Promise<void> {
-  let stalledScrolls = 0;
-  let previous = await getCommentProgressSnapshot(page, capture);
+): Promise<CommentCountSnapshot> {
   const maxStalledScrolls = computeMaxStalledScrolls(context.maxScrolls);
+  let stalledScrolls = 0;
+  let previous = await countCommentsInContainer(container);
 
-  context.logger.info('Group post detail scroll configuration', {
+  context.logger.info('Dialog scroll configuration', {
     maxScrolls: context.maxScrolls,
     maxStalledScrolls,
-    scrollDelayMs: context.scrollDelayMs
+    initialComments: previous.totalIds,
   });
 
   for (let index = 0; index < context.maxScrolls; index += 1) {
-    await page.evaluate(() => window.scrollBy(0, Math.max(window.innerHeight, 1200)));
-    await waitForCommentProgress(page, previous, Math.max(context.scrollDelayMs, SCROLL_PROGRESS_WAIT_MS));
+    await container.evaluate((el) => {
+      el.scrollTop += 500;
+    });
+    await sleep(DIALOG_SCROLL_DELAY_MS);
 
-    const current = await getCommentProgressSnapshot(page, capture);
-    const hasProgress =
-      current.fragmentCount > previous.fragmentCount ||
-      current.commentDomCount > previous.commentDomCount ||
-      current.scrollHeight > previous.scrollHeight;
+    const current = await countCommentsInContainer(container);
+    const hasProgress = current.totalIds > previous.totalIds;
 
     if (!hasProgress) {
       stalledScrolls += 1;
       if (stalledScrolls >= maxStalledScrolls) {
-        context.logger.info('Group post detail scrolling stopped after stall threshold', {
+        context.logger.info('Dialog scrolling stalled', {
           attemptedScrolls: index + 1,
-          maxScrolls: context.maxScrolls,
+          totalIds: current.totalIds,
           stalledScrolls,
-          maxStalledScrolls
         });
         break;
       }
@@ -183,13 +193,129 @@ async function scrollPostComments(
 
     previous = current;
   }
+
+  return previous;
+}
+
+// ── Reply thread expansion ──
+
+/**
+ * Click "View all X replies" / "X replies" buttons inside the container.
+ * Returns total number of expansions across all rounds.
+ */
+async function expandReplyThreads(
+  page: Page,
+  container: ElementHandle<Element>,
+  maxRounds: number,
+  maxPerRound: number
+): Promise<number> {
+  let totalExpanded = 0;
+
+  for (let round = 0; round < maxRounds; round++) {
+    let roundExpanded = 0;
+
+    for (let i = 0; i < maxPerRound; i++) {
+      const clicked = await container.evaluate((el) => {
+        const buttons = Array.from(
+          el.querySelectorAll('div[role="button"], span[role="button"]')
+        );
+        const replyBtn = buttons.find((btn) => {
+          const text = btn.textContent?.trim() ?? '';
+          return /repl/i.test(text) && /\d+/.test(text) && !/^Reply$/i.test(text);
+        });
+        if (replyBtn) {
+          (replyBtn as HTMLElement).click();
+          return true;
+        }
+        return false;
+      });
+
+      if (!clicked) break;
+      roundExpanded++;
+      await sleep(600);
+    }
+
+    totalExpanded += roundExpanded;
+
+    if (roundExpanded === 0) break;
+
+    // After expanding replies, scroll down to reveal more buttons
+    for (let i = 0; i < 10; i++) {
+      await container.evaluate((el) => {
+        el.scrollTop += 500;
+      });
+      await sleep(500);
+    }
+  }
+
+  return totalExpanded;
+}
+
+// ── Full comment loading pipeline ──
+
+/**
+ * Complete pipeline for loading all comments in a dialog-based post detail page:
+ * 1. Scroll down to load all top-level comments
+ * 2. Expand reply threads iteratively
+ * 3. Re-scroll after expansion to reveal newly loaded content
+ * 4. Repeat until stable
+ */
+async function loadAllComments(
+  page: Page,
+  container: ElementHandle<Element>,
+  context: ScraperContext
+): Promise<{ scrollCount: number; replyExpansions: number; finalCount: CommentCountSnapshot }> {
+  // Phase 1: Scroll to load all top-level comments
+  const afterScroll = await scrollDialogComments(page, container, context);
+  const scrollCount = afterScroll.totalIds;
+
+  // Phase 2: Expand reply threads with re-scroll between rounds
+  const replyExpansions = await expandReplyThreads(
+    page,
+    container,
+    REPLY_EXPANSION_ROUNDS,
+    MAX_REPLY_EXPANSIONS_PER_ROUND
+  );
+
+  // Phase 3: Re-scroll after reply expansion to load more
+  let stalled = 0;
+  let prev = await countCommentsInContainer(container);
+  let reScrollCount = 0;
+  for (let i = 0; i < 50; i++) {
+    await container.evaluate((el) => { el.scrollTop += 500; });
+    await sleep(DIALOG_SCROLL_DELAY_MS);
+    reScrollCount++;
+    const current = await countCommentsInContainer(container);
+    if (current.totalIds === prev.totalIds) {
+      stalled++;
+    } else {
+      stalled = 0;
+    }
+    prev = current;
+    if (stalled >= 15) break;
+  }
+
+  // Phase 4: One more reply expansion pass after re-scroll
+  const finalExpansions = await expandReplyThreads(page, container, 2, 50);
+
+  const finalCount = await countCommentsInContainer(container);
+
+  context.logger.info('Comment loading pipeline complete', {
+    afterInitialScroll: scrollCount,
+    replyExpansions: replyExpansions + finalExpansions,
+    reScrollCount,
+    finalTopLevel: finalCount.topLevelIds,
+    finalTotal: finalCount.totalIds,
+  });
+
+  return { scrollCount, replyExpansions: replyExpansions + finalExpansions, finalCount };
 }
 
 // ── Post ID extraction from URL ──
 
 function extractPostIdFromUrl(url: string): string | null {
- const match = url.match(/\/groups\/[^/]+\/(?:posts|permalink)\/(\d+)/);
- return match?.[1] ?? null;
+  const match = url.match(/\/groups\/[^/]+\/(?:posts|permalink)\/(\d+)/);
+  return match?.[1] ?? null;
 }
 
 // ── Main extractor ──
@@ -213,12 +339,51 @@ export async function extractGroupPostDetail(
       try {
         await page.goto(postUrl, { waitUntil: 'domcontentloaded' });
         await waitForPostSignals(page, context.timeoutMs);
-        await scrollPostComments(page, capture, context);
-        const replyExpansions = await expandReplyThreads(page, MAX_REPLY_EXPANSIONS);
 
-        context.logger.info('Group post detail reply expansion complete', {
-          replyExpansions
-        });
+        // Wait a moment for the dialog/container to fully render.
+        // Facebook renders the page shell first, then the dialog overlay.
+        await sleep(2000);
+
+        // Find the comment scroll container (the key discovery)
+        // Retry: the dialog/container may take a moment to render after page signals
+        let container: ElementHandle<Element> | null = null;
+        for (let attempt = 0; attempt < 3; attempt++) {
+          container = await findDialogScrollContainer(page);
+          if (container) break;
+          context.logger.info('Comment scroll container not found, waiting and retrying', { attempt: attempt + 1 });
+          await sleep(3000);
+        }
+
+        let commentLoadResult = {
+          scrollCount: 0,
+          replyExpansions: 0,
+          finalCount: { articles: 0, topLevelIds: 0, totalIds: 0 } as CommentCountSnapshot,
+        };
+
+        if (container) {
+          context.logger.info('Found comment scroll container, using container-based scrolling');
+          commentLoadResult = await loadAllComments(page, container, context);
+        } else {
+          context.logger.warn('No dialog scroll container found, falling back to body scroll');
+          // Fallback: scroll the page body (legacy behavior)
+          for (let i = 0; i < context.maxScrolls; i++) {
+            await page.evaluate(() => window.scrollBy(0, 1200));
+            await sleep(context.scrollDelayMs);
+          }
+          // Legacy reply expansion
+          for (let i = 0; i < 50; i++) {
+            const clicked = await page.evaluate(() => {
+              const buttons = Array.from(
+                document.querySelectorAll('div[role="button"], span[role="button"]')
+              ).filter((el) => /replies|View more|Show more/i.test(el.textContent?.trim() ?? ''));
+              if (buttons.length === 0) return false;
+              (buttons[0] as HTMLElement).click();
+              return true;
+            });
+            if (!clicked) break;
+            await sleep(800);
+          }
+        }
 
         // Collect feed fragments for post content
         const feedFragments = collectGroupFeedFragments(capture.registry.all());
@@ -244,11 +409,9 @@ export async function extractGroupPostDetail(
           post = graphqlPosts.find((p) => p.postId === postIdFromUrl) ?? null;
         }
         if (!post && graphqlPosts.length > 0) {
-          // Fallback: use the first post (permalink pages typically have one)
           post = graphqlPosts[0];
         }
         if (!post) {
-          // Minimal placeholder so downstream consumers always get a well-typed object
           post = {
             id: postIdFromUrl,
             postId: postIdFromUrl,
@@ -262,92 +425,91 @@ export async function extractGroupPostDetail(
           };
         }
 
- // Parse comments + replies
- const parserCommentFragments = embeddedDocument
- ? [...commentFragments, embeddedDocument]
- : commentFragments;
- const gqlComments = parseGroupCommentFragments(parserCommentFragments);
+        // Parse comments + replies from GraphQL/embedded
+        const parserCommentFragments = embeddedDocument
+          ? [...commentFragments, embeddedDocument]
+          : commentFragments;
+        const gqlComments = parseGroupCommentFragments(parserCommentFragments);
 
- // Also extract comments from the DOM (covers comments loaded via streaming/XHR
- // that aren't captured by GraphQLCapture or embedded document)
- let domComments: GroupPostComment[] = [];
- try {
- const domResult = await extractCommentsFromDom(page);
- domComments = domResult.comments;
- context.logger.info('DOM comment extraction result', {
- domCommentCount: domComments.length,
- domTotalVisible: domResult.totalVisible,
- });
- } catch (e) {
- context.logger.warn('DOM comment extraction failed, using GraphQL/embedded only', {
- error: e instanceof Error ? e.message : String(e),
- });
- }
+        // Extract comments from the DOM (now includes all loaded comments after scrolling)
+        let domComments: GroupPostComment[] = [];
+        try {
+          const domResult = await extractCommentsFromDom(page);
+          domComments = domResult.comments;
+          context.logger.info('DOM comment extraction result', {
+            domCommentCount: domComments.length,
+            domTotalVisible: domResult.totalVisible,
+          });
+        } catch (e) {
+          context.logger.warn('DOM comment extraction failed, using GraphQL/embedded only', {
+            error: e instanceof Error ? e.message : String(e),
+          });
+        }
 
- // Merge: prefer GraphQL/embedded comments (richer data), fill gaps with DOM comments
- const effectivePostId = post.postId ?? postIdFromUrl;
- const filteredGqlComments = effectivePostId
- ? gqlComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
- : gqlComments;
- const filteredDomComments = effectivePostId
- ? domComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
- : domComments;
+        // Merge: prefer GraphQL/embedded comments (richer data), fill gaps with DOM comments
+        const effectivePostId = post.postId ?? postIdFromUrl;
+        const filteredGqlComments = effectivePostId
+          ? gqlComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
+          : gqlComments;
+        const filteredDomComments = effectivePostId
+          ? domComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
+          : domComments;
 
- // Build merged comment map — GraphQL first (richer), then DOM for missing IDs
- const commentMap = new Map<string, GroupPostComment>();
- for (const c of filteredGqlComments) {
- if (c.id) commentMap.set(c.id, c);
- }
- for (const c of filteredDomComments) {
- if (!c.id) continue;
- const existing = commentMap.get(c.id);
- if (!existing) {
- // DOM-only comment — add it
- commentMap.set(c.id, c);
- } else {
- // Merge: fill in null fields from DOM
- if (existing.text === null && c.text !== null) existing.text = c.text;
- if (existing.author.name === null && c.author.name !== null) existing.author.name = c.author.name;
- if (existing.author.id === null && c.author.id !== null) existing.author.id = c.author.id;
- if (existing.metrics.reactions === null && c.metrics.reactions !== null) existing.metrics.reactions = c.metrics.reactions;
- if (existing.metrics.replies === null && c.metrics.replies !== null) existing.metrics.replies = c.metrics.replies;
- if (existing.parentId === null && c.parentId !== null) existing.parentId = c.parentId;
- }
- }
- const comments = Array.from(commentMap.values());
+        // Build merged comment map — GraphQL first (richer), then DOM for missing IDs
+        const commentMap = new Map<string, GroupPostComment>();
+        for (const c of filteredGqlComments) {
+          if (c.id) commentMap.set(c.id, c);
+        }
+        for (const c of filteredDomComments) {
+          if (!c.id) continue;
+          const existing = commentMap.get(c.id);
+          if (!existing) {
+            commentMap.set(c.id, c);
+          } else {
+            // Merge: fill in null fields from DOM
+            if (existing.text === null && c.text !== null) existing.text = c.text;
+            if (existing.author.name === null && c.author.name !== null) existing.author.name = c.author.name;
+            if (existing.author.id === null && c.author.id !== null) existing.author.id = c.author.id;
+            if (existing.metrics.reactions === null && c.metrics.reactions !== null) existing.metrics.reactions = c.metrics.reactions;
+            if (existing.metrics.replies === null && c.metrics.replies !== null) existing.metrics.replies = c.metrics.replies;
+            if (existing.parentId === null && c.parentId !== null) existing.parentId = c.parentId;
+            if (existing.createdAt === null && c.createdAt !== null) existing.createdAt = c.createdAt;
+          }
+        }
+        const comments = Array.from(commentMap.values());
 
- context.logger.info('Comment merge result', {
- effectivePostId,
- gqlCommentCount: filteredGqlComments.length,
- domCommentCount: filteredDomComments.length,
- mergedCommentCount: comments.length,
- });
+        context.logger.info('Comment merge result', {
+          effectivePostId,
+          gqlCommentCount: filteredGqlComments.length,
+          domCommentCount: filteredDomComments.length,
+          mergedCommentCount: comments.length,
+          dialogLoadedTotal: commentLoadResult.finalCount.totalIds,
+        });
 
- // Derive groupId: prefer the URL (canonical), fall back to route definitions
- const urlGroupId = postUrl.match(/\/groups\/([^/]+)\//)?.[1] ?? null;
- const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
- const groupId = urlGroupId ?? routeIdentity.groupId ?? null;
+        // Derive groupId
+        const urlGroupId = postUrl.match(/\/groups\/([^/]+)\//)?.[1] ?? null;
+        const routeIdentity = extractGroupRouteIdentity(routeCapture.records);
+        const groupId = urlGroupId ?? routeIdentity.groupId ?? null;
 
-  // Total comment count: from the post metrics if available, else from parsed comments
-  const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
+        // Total comment count
+        const totalCommentCount = post.metrics.comments ?? comments.length ?? null;
 
-  // DOM metrics fallback: extract reaction/comment/share counts from the rendered page
-  // This catches metrics that GraphQL/embedded sources miss
-  try {
-    const domMetrics = await snapshotPostMetrics(page);
-    if (domMetrics.length > 0) {
-      const merged = normalizeGroupPosts([post], domMetrics);
-      if (merged.length > 0) {
-        post = merged[0];
-      }
-    }
-  } catch (e) {
-    context.logger.warn('DOM metrics snapshot failed for post detail, using GraphQL/embedded values', {
-      error: e instanceof Error ? e.message : String(e)
-    });
-  }
+        // DOM metrics fallback
+        try {
+          const domMetrics = await snapshotPostMetrics(page);
+          if (domMetrics.length > 0) {
+            const merged = normalizeGroupPosts([post], domMetrics);
+            if (merged.length > 0) {
+              post = merged[0];
+            }
+          }
+        } catch (e) {
+          context.logger.warn('DOM metrics snapshot failed for post detail', {
+            error: e instanceof Error ? e.message : String(e)
+          });
+        }
 
-  return {
+        return {
           data: {
             postId: post.postId ?? postIdFromUrl,
             url: postUrl,
@@ -366,10 +528,18 @@ export async function extractGroupPostDetail(
               groupId,
               vanitySlug: routeIdentity.vanitySlug
             },
-            reply_expansion_count: replyExpansions,
+            reply_expansion_count: commentLoadResult.replyExpansions,
             embedded_document_summary: embeddedDocument
               ? { fragmentCount: embeddedDocument.fragments.length }
               : null,
+            dialog_comment_loading: {
+              foundDialogContainer: container !== null,
+              scrollCount: commentLoadResult.scrollCount,
+              replyExpansions: commentLoadResult.replyExpansions,
+              finalTopLevel: commentLoadResult.finalCount.topLevelIds,
+              finalTotalIds: commentLoadResult.finalCount.totalIds,
+              finalArticles: commentLoadResult.finalCount.articles,
+            },
             collection_stats: {
               parsedPostCount: graphqlPosts.length,
               parsedCommentCount: comments.length,

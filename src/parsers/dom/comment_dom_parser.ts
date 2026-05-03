@@ -175,11 +175,14 @@ export async function extractCommentsFromDom(page: Page): Promise<DomCommentResu
     })
     .map(c => {
       // Build the full composite ID: POSTID_COMMENTID
+      // For reply comments, the commentId is the reply's ID and parentCommentId is the parent comment
       const fullId = c.postId ? `${c.postId}_${c.commentId}` : c.commentId!;
       const fullParentId = c.parentCommentId && c.postId 
         ? `${c.postId}_${c.parentCommentId}` 
         : (c.parentCommentId ?? null);
 
+      // If this comment has a parentCommentId, it's a reply (not top-level)
+      // The fullId for a reply uses its own commentId (the reply_comment_id value)
       return {
         id: fullId,
         parentId: fullParentId,
