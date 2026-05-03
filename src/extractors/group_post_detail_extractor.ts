@@ -13,9 +13,10 @@ import { extractGroupRouteIdentity } from '../parsers/embedded/group_route_ident
 import { collectGroupFeedFragments, parseGroupFeedFragments } from '../parsers/graphql/group_feed_parser';
 import { collectGroupCommentFragments, parseGroupCommentFragments } from '../parsers/graphql/group_comment_parser';
 import { snapshotPostMetrics } from '../parsers/dom/post_dom_parser';
+import { extractCommentsFromDom } from '../parsers/dom/comment_dom_parser';
 import { normalizeGroupPosts } from '../normalizers/group_post_normalizer';
 
-import type { ExtractorResult, GroupPost, GroupPostDetailResult } from '../types/contracts';
+import type { ExtractorResult, GroupPost, GroupPostComment, GroupPostDetailResult } from '../types/contracts';
 import type { ScraperContext } from '../core/scraper_context';
 
 const INITIAL_POST_SIGNAL_WAIT_MS = 15_000;
@@ -265,14 +266,62 @@ export async function extractGroupPostDetail(
  const parserCommentFragments = embeddedDocument
  ? [...commentFragments, embeddedDocument]
  : commentFragments;
- const allComments = parseGroupCommentFragments(parserCommentFragments);
+ const gqlComments = parseGroupCommentFragments(parserCommentFragments);
 
- // Filter comments to only those belonging to this post
- // Comment IDs are in format POSTID_COMMENTID — match the postId prefix
+ // Also extract comments from the DOM (covers comments loaded via streaming/XHR
+ // that aren't captured by GraphQLCapture or embedded document)
+ let domComments: GroupPostComment[] = [];
+ try {
+ const domResult = await extractCommentsFromDom(page);
+ domComments = domResult.comments;
+ context.logger.info('DOM comment extraction result', {
+ domCommentCount: domComments.length,
+ domTotalVisible: domResult.totalVisible,
+ });
+ } catch (e) {
+ context.logger.warn('DOM comment extraction failed, using GraphQL/embedded only', {
+ error: e instanceof Error ? e.message : String(e),
+ });
+ }
+
+ // Merge: prefer GraphQL/embedded comments (richer data), fill gaps with DOM comments
  const effectivePostId = post.postId ?? postIdFromUrl;
- const comments = effectivePostId
- ? allComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
- : allComments;
+ const filteredGqlComments = effectivePostId
+ ? gqlComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
+ : gqlComments;
+ const filteredDomComments = effectivePostId
+ ? domComments.filter((c) => c.id != null && c.id.startsWith(effectivePostId + '_'))
+ : domComments;
+
+ // Build merged comment map — GraphQL first (richer), then DOM for missing IDs
+ const commentMap = new Map<string, GroupPostComment>();
+ for (const c of filteredGqlComments) {
+ if (c.id) commentMap.set(c.id, c);
+ }
+ for (const c of filteredDomComments) {
+ if (!c.id) continue;
+ const existing = commentMap.get(c.id);
+ if (!existing) {
+ // DOM-only comment — add it
+ commentMap.set(c.id, c);
+ } else {
+ // Merge: fill in null fields from DOM
+ if (existing.text === null && c.text !== null) existing.text = c.text;
+ if (existing.author.name === null && c.author.name !== null) existing.author.name = c.author.name;
+ if (existing.author.id === null && c.author.id !== null) existing.author.id = c.author.id;
+ if (existing.metrics.reactions === null && c.metrics.reactions !== null) existing.metrics.reactions = c.metrics.reactions;
+ if (existing.metrics.replies === null && c.metrics.replies !== null) existing.metrics.replies = c.metrics.replies;
+ if (existing.parentId === null && c.parentId !== null) existing.parentId = c.parentId;
+ }
+ }
+ const comments = Array.from(commentMap.values());
+
+ context.logger.info('Comment merge result', {
+ effectivePostId,
+ gqlCommentCount: filteredGqlComments.length,
+ domCommentCount: filteredDomComments.length,
+ mergedCommentCount: comments.length,
+ });
 
  // Derive groupId: prefer the URL (canonical), fall back to route definitions
  const urlGroupId = postUrl.match(/\/groups\/([^/]+)\//)?.[1] ?? null;
