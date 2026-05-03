@@ -10,10 +10,12 @@ function parseResponseBody(body: string): unknown[] {
     .map((line) => line.trim())
     .filter(Boolean)
     .map((line) => {
+      // Strip Facebook's anti-JSON-hijacking prefix: "for(;;);" or "for (;;);"
+      const stripped = line.replace(/^for\s*\(;;\);\s*/, '');
       try {
-        return JSON.parse(line) as unknown;
+        return JSON.parse(stripped) as unknown;
       } catch {
-        return { rawText: line, parseError: true };
+        return { rawText: stripped, parseError: true };
       }
     });
 }

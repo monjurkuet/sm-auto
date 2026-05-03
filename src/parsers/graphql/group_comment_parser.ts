@@ -4,29 +4,41 @@ import { deepVisit, asRecord, getString, getNumber, parseI18nCount } from './sha
 // ── Fragment collection ──
 
 function payloadHasCommentPath(payload: unknown): boolean {
- if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
- return false;
- }
+  if (!payload || typeof payload !== 'object' || Array.isArray(payload)) {
+    return false;
+  }
 
- const record = payload as Record<string, unknown>;
- const path = Array.isArray(record.path) ? record.path : [];
- return path.some(
- (segment) =>
- segment === 'all_comments' ||
- segment === 'top_level_comments' ||
- segment === 'comment_list'
- );
+  const record = payload as Record<string, unknown>;
+  const path = Array.isArray(record.path) ? record.path : [];
+  return path.some(
+    (segment) =>
+      segment === 'all_comments' ||
+      segment === 'top_level_comments' ||
+      segment === 'comment_list' ||
+      segment === 'replies_connection'
+  );
 }
 
 export function collectGroupCommentFragments(fragments: GraphQLFragment[]): GraphQLFragment[] {
- return fragments.filter((fragment) => {
- const friendlyName = fragment.request.friendlyName ?? '';
- if (/CometUFI|Feedback|CommentMutation|UFIFeedback|embedded_document/i.test(friendlyName)) {
- return true;
- }
+  return fragments.filter((fragment) => {
+    const friendlyName = fragment.request.friendlyName ?? '';
+    if (/CometUFI|Feedback|CommentMutation|UFIFeedback|embedded_document|CommentsList|Depth\d+Comments/i.test(friendlyName)) {
+      return true;
+    }
 
- return fragment.fragments.some((payload) => payloadHasCommentPath(payload));
- });
+    // doc_id-based requests (reply expansion clicks) don't have friendlyName
+    // but contain replies_connection in the response body
+    if (fragment.request.docId && fragment.fragments.some((payload) => {
+      if (!payload || typeof payload !== 'object') return false;
+      const record = payload as Record<string, unknown>;
+      // Check for replies_connection at any depth
+      return JSON.stringify(record).includes('"replies_connection"');
+    })) {
+      return true;
+    }
+
+    return fragment.fragments.some((payload) => payloadHasCommentPath(payload));
+  });
 }
 
 // ── Base64 ID decoding ──
